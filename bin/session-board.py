@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import select
@@ -542,15 +543,30 @@ def codex_rollout(path: Path) -> dict:
     return out
 
 
-def codex_limits(limits: dict | None) -> list[dict]:
+def limit_window(name: str, used, resets, now: float) -> dict | None:
+    """One usage window as the page shows it, or None when its numbers can't be trusted: a percentage that is not a
+    finite number is dropped, one outside 0-100 is clamped, and a window whose reset has passed is stale, so dropped."""
+    if isinstance(used, bool) or not isinstance(used, (int, float)) or not math.isfinite(used):
+        return None
+    if isinstance(resets, str):
+        resets = parse_ts(resets)
+    if isinstance(resets, bool) or not isinstance(resets, (int, float)) or not math.isfinite(resets) or resets <= 0:
+        resets = None
+    if resets is not None and resets <= now:
+        return None
+    return {"name": name, "used": round(min(max(used, 0), 100)), "resets": int(resets) if resets else None}
+
+
+def codex_limits(limits, now: float) -> list[dict]:
     """Codex's rate-limit windows, worded the way the page shows both bots."""
     out = []
     for key in ("primary", "secondary"):
-        w = (limits or {}).get(key)
-        if w and w.get("used_percent") is not None:
-            mins = int(w.get("window_minutes") or 0)
-            out.append({"name": CODEX_WINDOWS.get(mins, f"{mins // 60}h"), "used": round(w["used_percent"]),
-                        "resets": int(w["resets_at"]) if w.get("resets_at") else None})
+        w = limits.get(key) if isinstance(limits, dict) else None
+        if isinstance(w, dict):
+            mins = w.get("window_minutes")
+            name = (CODEX_WINDOWS.get(mins, f"{mins // 60}h") if isinstance(mins, int) and mins > 0 else "?")
+            if (win := limit_window(name, w.get("used_percent"), w.get("resets_at"), now)):
+                out.append(win)
     return out
 
 
@@ -721,10 +737,8 @@ class Board:
             data = {}
         for key, label in CLAUDE_WINDOWS:
             w = data.get(key) if isinstance(data, dict) else None
-            if isinstance(w, dict) and w.get("used_percentage") is not None:
-                resets = w.get("resets_at")
-                claude["limits"].append({"name": label, "used": round(float(w["used_percentage"])),
-                                         "resets": int(resets if isinstance(resets, (int, float)) else parse_ts(resets) or 0) or None})
+            if isinstance(w, dict) and (win := limit_window(label, w.get("used_percentage"), w.get("resets_at"), now)):
+                claude["limits"].append(win)
         codex: dict = {"sessions": sum(r.get("bot") == "codex" for r in rows), "limits": [], "plan": "", "age": None}
         days = sorted((self.codex_dir / "sessions").glob("*/*/*")) if self.codex_dir else []
         newest = max(days[-1].glob("*.jsonl"), key=lambda p: p.stat().st_mtime, default=None) if days else None
@@ -733,8 +747,8 @@ class Board:
                 ro = self.rollout(newest)
             except OSError:
                 ro = {"limits": None}
-            if ro["limits"]:
-                codex.update(limits=codex_limits(ro["limits"]), plan=str(ro["limits"].get("plan_type") or ""),
+            if isinstance(ro["limits"], dict):
+                codex.update(limits=codex_limits(ro["limits"], now), plan=str(ro["limits"].get("plan_type") or ""),
                              age=now - ro["limits_ts"] if ro["limits_ts"] else None)
         return {"claude": claude, "codex": codex}
 

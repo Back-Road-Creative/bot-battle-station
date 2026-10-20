@@ -956,6 +956,30 @@ def test_bot_stats_count_each_bot_and_read_both_limits(tmp_path, monkeypatch):
     assert stats["claude"]["age"] is not None and stats["claude"]["sessions"] == 0
 
 
+def test_limits_keep_only_valid_current_windows(tmp_path):
+    """A limits value the page cannot trust is dropped, never shown and never a crash: a non-number, NaN or bool
+    percentage, a window whose reset has passed, a file that is not an object; a percentage over 100 is shown as 100."""
+    now = time.time()
+    limits = tmp_path / "claude-limits.json"
+    board = sb.Board(tmp_path / "claude", None, limits_file=limits)
+    limits.write_text(json.dumps({"five_hour": {"used_percentage": "lots", "resets_at": int(now) + 900},
+                                  "seven_day": {"used_percentage": 140, "resets_at": "soon"}}))
+    assert board.bots([], now)["claude"]["limits"] == [{"name": "weekly", "used": 100, "resets": None}]
+    limits.write_text(json.dumps({"five_hour": {"used_percentage": float("nan"), "resets_at": int(now) + 900},
+                                  "seven_day": {"used_percentage": True, "resets_at": int(now) + 900}}))
+    assert board.bots([], now)["claude"]["limits"] == []
+    limits.write_text(json.dumps({"five_hour": {"used_percentage": 88, "resets_at": int(now) - 60},
+                                  "seven_day": {"used_percentage": -5, "resets_at": int(now) + 900}}))
+    assert board.bots([], now)["claude"]["limits"] == [{"name": "weekly", "used": 0, "resets": int(now) + 900}]
+    limits.write_text("[1, 2]")
+    assert board.bots([], now)["claude"]["limits"] == []
+    bad = {"primary": {"used_percent": "x", "window_minutes": 300, "resets_at": int(now) + 60},
+           "secondary": {"used_percent": 30, "window_minutes": "week", "resets_at": "soon"}}
+    assert sb.codex_limits(bad, now) == [{"name": "?", "used": 30, "resets": None}]
+    assert sb.codex_limits({"primary": {"used_percent": 30, "window_minutes": 300, "resets_at": int(now) - 1}}, now) == []
+    assert sb.codex_limits("not an object", now) == []
+
+
 def test_api_tags_every_session_with_its_bot_and_carries_bot_stats(tmp_path, monkeypatch):
     import threading
     import urllib.request

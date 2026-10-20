@@ -16,6 +16,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Usage limits the board can't trust no longer break `/api` or show on the page: a window
+  whose percentage is not a number, or whose reset time has passed, is left out; a percentage
+  outside 0-100 is clamped. The README's status-line line writes only when Claude Code sent
+  limits, and swaps the file in whole.
 - `SHA256SUMS` on a release names the files as they download (`session-board.py`,
   not `bin/session-board.py`), so `sha256sum -c SHA256SUMS` works. The release
   folder is built by `scripts/release-dist.sh`, which CI also runs on every pull

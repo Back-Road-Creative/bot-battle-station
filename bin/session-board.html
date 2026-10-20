@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Battle Station</title>
+<!-- Served by bin/session-board.py. Polls /api every 2 s; every value is rendered with textContent
+     because transcript text is untrusted. No external requests. Words are plain:
+     tests/test_session_board.py bans the old jargon. -->
+<style>
+@property --p { syntax: "<number>"; inherits: true; initial-value: 0; }
+:root {
+  /* command station: phosphor green and amber on black; red only ever means you */
+  --bg: #020503; --panel: rgba(6, 16, 9, .84); --line: rgba(60, 255, 130, .16);
+  --text: #d2ecd6; --muted: #6f8f76; --cyan: #39ff88; --magenta: #d9c45a; --amber: #ffb400;
+  --red: #ff2a3c; --mint: #9dff6a; --slate: #4d6653;
+  --stencil: "Stencil", "Impact", "Arial Narrow Bold", var(--mono);
+  --mono: "Cascadia Code", "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
+  --sans: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font: 14px/1.4 var(--sans); }
+body::before {   /* moving perspective grid */
+  content: ""; position: fixed; inset: 40% -50% -60%; z-index: -2;
+  background:
+    linear-gradient(transparent 0 calc(100% - 1px), rgba(57, 255, 136, .22) 0) 0 0 / 100% 48px,
+    linear-gradient(90deg, transparent 0 calc(100% - 1px), rgba(57, 255, 136, .14) 0) 0 0 / 48px 100%;
+  transform: perspective(500px) rotateX(62deg); animation: floor 6s linear infinite;
+  mask-image: linear-gradient(to bottom, transparent, #000 60%);
+}
+body::after {   /* glow + scanlines */
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(1200px 500px at 15% -10%, rgba(57, 255, 136, .10), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(255, 180, 0, .07), transparent 60%),
+    repeating-linear-gradient(transparent 0 2px, rgba(0, 0, 0, .18) 2px 3px);
+}
+@keyframes floor { to { background-position: 0 48px, 0 0; } }
+@keyframes pulse { 50% { opacity: .3; } }
+@keyframes shine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+@keyframes march { to { background-position: 12px 0; } }
+@keyframes enter { from { opacity: 0; transform: translateY(14px) scale(.97); } }
+@keyframes edge { 0%, 100% { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 35%, transparent); }
+                  50% { box-shadow: inset 0 0 0 2px var(--c), 0 0 28px color-mix(in srgb, var(--c) 60%, transparent); } }
+@keyframes done { 0% { box-shadow: inset 0 0 0 2px var(--mint), 0 0 34px var(--mint); } 100% { box-shadow: inset 0 0 0 1px transparent; } }
+
+header {
+  position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 26px; flex-wrap: wrap;
+  padding: 12px 24px; background: linear-gradient(rgba(2, 5, 3, .97), rgba(2, 5, 3, .84));
+  border-bottom: 1px solid var(--line); backdrop-filter: blur(8px);
+}
+.brand { display: flex; align-items: center; gap: 10px; font: 22px var(--stencil); letter-spacing: .22em; color: var(--cyan); text-shadow: 0 0 12px rgba(57, 255, 136, .6); }
+.brand b { color: var(--amber); text-shadow: 0 0 12px rgba(255, 180, 0, .6); }
+.radar { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--cyan);
+  background: conic-gradient(from 0deg, rgba(57, 255, 136, .75), transparent 22%),
+    repeating-radial-gradient(transparent 0 6px, rgba(57, 255, 136, .35) 6px 7px);
+  animation: sweep 3s linear infinite; box-shadow: 0 0 12px rgba(57, 255, 136, .4); }
+@keyframes sweep { to { transform: rotate(1turn); } }
+/* DEFCON ladder: 1 someone needs you (red, siren), 2 a job behind or the board offline (amber, one tone), 3-5 calm */
+.defcon { display: flex; align-items: center; gap: 4px; }
+.defcon .k { font: 600 11px var(--mono); letter-spacing: .2em; color: var(--muted); margin-right: 4px; }
+.defcon i { font: 20px/1 var(--stencil); font-style: normal; width: 30px; padding: 4px 0; text-align: center; color: var(--slate); border: 1px solid var(--line); }
+.defcon i.on { color: var(--bg); background: var(--k); border-color: var(--k); box-shadow: 0 0 16px var(--k); }
+.defcon i.l1 { --k: var(--red); } .defcon i.l2 { --k: var(--amber); } .defcon i.l3 { --k: #e8e05a; } .defcon i.l4 { --k: var(--cyan); } .defcon i.l5 { --k: var(--mint); }
+.defcon i.l1.on { color: #fff; animation: alarm 1.2s ease-in-out infinite; }
+.defcon .why { font: 600 12px var(--mono); letter-spacing: .1em; color: var(--text); margin-left: 8px; text-transform: uppercase; max-width: 220px; }
+.defcon.d1 .why { color: #ff8a98; } .defcon.d2 .why { color: var(--amber); }
+#arm { font: 600 12px var(--mono); letter-spacing: .14em; padding: 6px 10px; cursor: pointer; color: var(--amber); background: transparent; border: 1px dashed var(--amber); }
+#arm.on { color: var(--bg); background: var(--cyan); border: 1px solid var(--cyan); }
+#arm.wake { color: #fff; background: var(--red); border: 1px solid var(--red); }
+
+/* full-screen alert: readable from across the room, stays until acknowledged or the ask goes away */
+#alert { position: fixed; inset: 0; z-index: 9; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 4vh 4vw;
+  background: repeating-linear-gradient(-45deg, rgba(255, 42, 60, .20) 0 40px, transparent 40px 80px), rgba(40, 0, 6, .94); }
+#alert.on { display: flex; }
+#alert .big { font: clamp(64px, 13vw, 220px)/.9 var(--stencil); letter-spacing: .04em; color: #fff; text-align: center;
+  text-shadow: 0 0 30px var(--red), 0 0 80px var(--red); animation: blink 1s steps(1) infinite; }
+#alert .who { display: grid; gap: 10px; width: min(1400px, 92vw); }
+#alert .who div { padding: 12px 20px; border: 3px solid var(--red); background: rgba(255, 42, 60, .28); font: 600 clamp(20px, 2.4vw, 38px) var(--sans); color: #fff; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#alert .who b { font-family: var(--mono); margin-right: 16px; color: #ffd6db; }
+#alert .hint { color: #ffd6db; font-size: 14px; padding: 0; }
+#alert button { font: clamp(20px, 2.2vw, 32px) var(--stencil); letter-spacing: .2em; padding: 14px 40px; cursor: pointer; color: var(--red); background: #fff; border: 0; }
+@keyframes blink { 50% { color: var(--red); text-shadow: none; } }
+@media (prefers-reduced-motion: reduce) { #alert .big, .radar, .defcon i { animation: none; } }
+.stats { display: flex; gap: 22px; flex-wrap: wrap; }
+.stat { display: flex; flex-direction: column; cursor: default; }
+.stat .n { font: 600 22px var(--mono); line-height: 1.05; }
+.stat .k { font: 11px var(--mono); letter-spacing: .14em; color: var(--muted); text-transform: uppercase; }
+.stat.hot { padding: 2px 10px; border-radius: 4px; background: rgba(255, 40, 60, .18); box-shadow: 0 0 0 1px var(--red), 0 0 22px rgba(255, 40, 60, .55); animation: alarm 1.2s ease-in-out infinite; }
+.stat.hot .n { color: #fff; text-shadow: 0 0 14px var(--red); }
+.stat.hot .k { color: #ffb3bd; }
+.right { margin-left: auto; display: flex; align-items: center; gap: 14px; font: 12px var(--mono); color: var(--muted); }
+.clock { font: 600 20px var(--mono); color: var(--text); letter-spacing: .08em; }
+.live { display: inline-flex; align-items: center; gap: 6px; letter-spacing: .2em; }
+.live i { width: 8px; height: 8px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 10px var(--mint); animation: pulse 1.6s infinite; }
+.live.off { color: var(--red); } .live.off i { background: var(--red); box-shadow: 0 0 10px var(--red); }
+
+/* NEEDS YOU is an alarm: hazard stripes, red, pulsing. Every other state stays calm. */
+@keyframes alarm { 50% { box-shadow: 0 0 0 2px var(--red), 0 0 34px rgba(255, 40, 60, .9); } }
+#needs { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 12px 24px 0; padding: 10px 14px;
+  background: linear-gradient(rgba(60, 0, 10, .88), rgba(60, 0, 10, .88)),
+    repeating-linear-gradient(-45deg, var(--red) 0 14px, #1a0004 14px 28px);
+  border: 2px solid var(--red); border-radius: 4px; box-shadow: 0 0 0 1px var(--red), 0 0 22px rgba(255, 40, 60, .55);
+  animation: alarm 1.2s ease-in-out infinite; }
+#needs:empty { display: none; }
+/* The board's own link: as loud as NEEDS YOU (a dead board hides every new ask), amber, after OFFLINE_AFTER only. */
+#link { display: none; gap: 14px; align-items: center; margin: 12px 24px 0; padding: 14px 18px;
+  background: linear-gradient(rgba(50, 30, 0, .9), rgba(50, 30, 0, .9)),
+    repeating-linear-gradient(-45deg, var(--amber) 0 14px, #1a1000 14px 28px);
+  border: 2px solid var(--amber); border-radius: 4px; box-shadow: 0 0 0 1px var(--amber), 0 0 26px rgba(255, 180, 0, .55);
+  font: 700 16px var(--mono); letter-spacing: .16em; color: #fff; text-shadow: 0 0 12px var(--amber); }
+#link.on { display: flex; }
+#link small { font: 400 13px var(--mono); letter-spacing: .04em; color: var(--text); text-shadow: none; }
+/* A Claude Code newer than the board was checked against: its files may have changed, so numbers may be off. */
+#untested { margin: 8px 24px 0; padding: 6px 12px; border: 1px dashed var(--amber); color: var(--amber);
+  font: 600 12px var(--mono); letter-spacing: .08em; }
+#untested:empty { display: none; }
+#grid.stale { opacity: .35; filter: grayscale(.8); }
+#needs .lbl { font: 700 15px var(--mono); letter-spacing: .18em; color: #fff; text-shadow: 0 0 12px var(--red); }
+.ask { display: flex; gap: 8px; align-items: baseline; max-width: 520px; padding: 7px 12px; cursor: pointer;
+  background: rgba(255, 40, 60, .22); border: 1px solid var(--red); border-radius: 4px; }
+.ask:hover { background: rgba(255, 40, 60, .38); }
+.ask b { font: 700 13px var(--mono); color: #fff; white-space: nowrap; }
+.ask span { font-size: 13px; color: #ffd6db; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ask em { font: 600 12px var(--mono); font-style: normal; color: #ff8a98; white-space: nowrap; }
+
+main { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; padding: 16px 24px 40px; }
+.tile {
+  --c: var(--slate); position: relative; padding: 12px 16px 10px; cursor: pointer; max-height: 300px; overflow: hidden;
+  background: var(--panel); backdrop-filter: blur(10px);
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 35%, transparent), inset 0 1px 0 color-mix(in srgb, var(--c) 60%, transparent);
+  transition: transform .15s;
+}
+.tile:hover { transform: translateY(-2px); }
+.tile.enter { animation: enter .5s ease-out; }
+.tile.changed { animation: edge 1.2s ease-in-out 2; }
+.tile.flash { animation: done 1.6s ease-out; }
+.tile::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 0; width: 3px; background: var(--c); box-shadow: 0 0 14px var(--c); }
+.RUNNING { --c: var(--cyan); } .WAITING { --c: var(--amber); } .NEEDS { --c: var(--red); } .IDLE { --c: var(--slate); }
+.tile.NEEDS { background: linear-gradient(rgba(70, 0, 12, .80), rgba(30, 4, 12, .85)); animation: alarm 1.2s ease-in-out infinite; }
+.tile.NEEDS::after { content: ""; position: absolute; inset: 0 0 auto; height: 5px;
+  background: repeating-linear-gradient(-45deg, var(--red) 0 8px, #1a0004 8px 16px); }
+.tile.NEEDS .state { color: #fff; background: var(--red); padding: 1px 7px; border-radius: 3px; text-shadow: none; }
+.tile.NEEDS .state::before { content: "⚠ "; }
+.tile.NEEDS .now { color: #ffd6db; font-weight: 600; }
+/* yellow: a measured warning (job behind, helper silent, context near full). Steady, silent, never the alarm. */
+.tile.warn { outline: 2px solid var(--amber); outline-offset: -2px; }
+.tile .warning { font: 700 11px var(--mono); letter-spacing: .08em; color: #000; background: var(--amber);
+  padding: 2px 8px; margin: 4px 0 2px; border-radius: 3px; text-transform: uppercase; }
+@media (prefers-reduced-motion: reduce) { .tile.NEEDS, #needs, .stat.hot { animation: none; } }
+.tile.IDLE { opacity: .8; }
+.top { display: flex; align-items: baseline; gap: 8px; }
+.name { font: 600 15px var(--mono); color: #fff; }
+.sid { font: 12px var(--mono); color: var(--muted); }
+.state { margin-left: auto; font: 600 11px var(--mono); letter-spacing: .16em; color: var(--c); text-shadow: 0 0 10px var(--c); white-space: nowrap; }
+.state::before { content: "● "; }
+.RUNNING .state::before { animation: pulse 1s infinite; }
+.title { margin-top: 3px; font: 600 15px var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.mid { display: flex; gap: 12px; align-items: center; margin-top: 8px; }
+.gauge { flex: none; width: 96px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.gauge .left { font: 600 12px var(--mono); color: var(--c); text-align: center; line-height: 1.2; }
+.gauge .left[data-at] { white-space: nowrap; }
+.gauge.behind .left { color: var(--red); }
+.ring { --p: 0; flex: none; width: 70px; height: 70px; border-radius: 50%; display: grid; place-items: center; transition: --p 1s ease-out;
+  background: radial-gradient(closest-side, #061008 80%, transparent 81% 100%),
+    conic-gradient(var(--cyan), var(--amber) calc(var(--p) * 1%), rgba(80, 100, 140, .22) 0);
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--c) 45%, transparent)); text-align: center; }
+.ring.behind { background: radial-gradient(closest-side, #061008 80%, transparent 81% 100%), conic-gradient(var(--red) calc(var(--p) * 1%), rgba(80, 100, 140, .22) 0); }
+.ring .pct { font: 700 19px var(--mono); line-height: 1; }
+.ring .pct small { font-size: 11px; color: var(--muted); }
+.what { min-width: 0; flex: 1; }
+.now { color: var(--muted); font-size: 13px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dials { display: flex; gap: 6px; margin-top: 7px; }
+.dial { flex: 1; min-width: 0; padding: 3px 6px; border-radius: 4px; background: rgba(80, 100, 140, .12);
+  border-top: 2px solid var(--d, var(--slate)); }
+.dial .n { font: 600 13.5px var(--mono); color: var(--d, var(--muted)); white-space: nowrap; }
+.dial .k { font: 10.5px var(--mono); color: var(--muted); letter-spacing: .06em; }
+.good { --d: var(--mint); } .ok { --d: var(--amber); } .bad { --d: var(--red); } .none { --d: var(--slate); }
+
+.list { margin-top: 8px; display: grid; gap: 3px; font: 12px var(--mono); }
+.step { display: flex; gap: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.step::before { content: "▹"; color: var(--magenta); }
+.job { display: grid; grid-template-columns: 1fr 70px 96px; gap: 8px; align-items: center; }
+.job .l { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.job .l em { font-style: normal; color: var(--cyan); margin-right: 6px; }
+.job.watch .l em { color: var(--amber); }
+.bar { height: 5px; background: rgba(80, 100, 140, .25); border-radius: 3px; overflow: hidden; position: relative; }
+.bar b { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, var(--cyan), var(--amber)); border-radius: 3px; }
+.bar b::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .55), transparent); animation: shine 1.8s infinite; }
+.job.late .bar b { background: var(--red); } .job.late .t { color: var(--red); }
+.job.watch .bar { background: repeating-linear-gradient(90deg, rgba(255, 180, 0, .5) 0 6px, transparent 6px 12px); animation: march 1s linear infinite; }
+.job .t { text-align: right; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.more { color: var(--muted); }
+
+.foot { display: grid; grid-template-columns: 1fr 120px; gap: 12px; align-items: center; margin-top: 9px; }
+.strip { display: grid; grid-template-columns: repeat(60, 1fr); gap: 1px; height: 10px; }
+.strip i { border-radius: 1px; background: transparent; }
+.strip i.w { background: var(--cyan); box-shadow: 0 0 4px var(--cyan); } .strip i.j { background: var(--amber); opacity: .8; }
+.strip i.y { background: rgba(217, 196, 90, .30); }
+.fuel { font: 10.5px var(--mono); color: var(--muted); }
+.fuel .bar { margin-top: 2px; height: 4px; }
+.fuel .bar b { background: var(--mint); } .fuel.warm .bar b { background: var(--amber); } .fuel.hot .bar b { background: var(--red); }
+.fuel b::after, .ring b::after { display: none; }
+
+#focus { position: fixed; inset: 0; z-index: 5; display: none; place-items: center; background: rgba(2, 6, 3, .85); backdrop-filter: blur(6px); }
+#focus.on { display: grid; animation: enter .3s ease-out; }
+#focus .tile { width: min(980px, 94vw); max-height: 90vh; overflow: auto; padding: 22px 28px; cursor: default; }
+#focus .tile:hover { transform: none; }
+#legend { position: fixed; inset: 0; z-index: 6; display: none; place-items: center; background: rgba(2, 6, 3, .88); backdrop-filter: blur(6px); }
+#legend.on { display: grid; }
+#legend > div { width: min(980px, 94vw); max-height: 90vh; overflow: auto; padding: 18px 26px; background: var(--panel); border: 1px solid var(--line); }
+#legend table { width: 100%; border-collapse: collapse; font-size: 13px; }
+#legend th, #legend td { text-align: left; vertical-align: top; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+#legend h3 { margin: 14px 0 4px; letter-spacing: .12em; }
+#focus .gauge { width: 150px; } #focus .ring { width: 120px; height: 120px; } #focus .ring .pct { font-size: 30px; } #focus .gauge .left { font-size: 14px; }
+#focus .name { font-size: 20px; } #focus .title { font-size: 19px; white-space: normal; }
+#focus .now { -webkit-line-clamp: 4; font-size: 14px; }
+#focus .strip { height: 18px; }
+#focus .list { font-size: 13px; }
+.sec { margin-top: 14px; font: 600 11px var(--mono); letter-spacing: .22em; color: var(--muted); text-transform: uppercase; }
+.sec + * { margin-top: 6px; }
+.sum { font-size: 14px; white-space: pre-wrap; }
+.meta { font: 12.5px var(--mono); color: var(--muted); margin-top: 10px; }
+.legend { display: flex; gap: 14px; font: 11.5px var(--mono); color: var(--muted); margin-top: 4px; }
+.legend i { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; }
+.legend i.w { background: var(--cyan); } .legend i.j { background: var(--amber); } .legend i.y { background: rgba(217, 196, 90, .6); }
+.close { position: absolute; top: 14px; right: 22px; font: 12px var(--mono); color: var(--muted); }
+.empty { grid-column: 1 / -1; text-align: center; padding: 80px; font: 14px var(--mono); letter-spacing: .3em; color: var(--muted); }
+.hint { font: 11px var(--mono); color: var(--muted); padding: 0 24px 20px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><i class="radar"></i>BATTLE<b>//</b>STATION</div>
+  <div class="defcon" id="defcon" title="1 a session needs you · 2 something measured looks off or the board is offline · 3 waiting on jobs · 4 working · 5 all quiet. Press ? for what each means."></div>
+  <div class="stats" id="stats"></div>
+  <div class="right"><button id="help" title="What every level, state and number means (key: ?)">?</button><button id="arm" title="Browsers only play sound after a click. Arm once; the page remembers.">ARM SIREN</button>
+    <span class="live" id="live"><i></i>LIVE</span><span class="clock" id="clock"></span></div>
+</header>
+<div id="alert"></div>
+<div id="link"></div>
+<div id="untested"></div>
+<div id="needs"></div>
+<main id="grid"></main>
+<div class="hint">Click a tile or press 1-9 for the full view · Esc closes</div>
+<div id="focus"></div>
+<div id="legend"><div>
+  <div id="today"></div>
+  <h3>DEFCON: the box's level, worst first</h3>
+  <table><tr><th>Level</th><th>When</th><th>What you do</th></tr>
+  <tr><td>DEFCON 1</td><td>A session NEEDS YOU.</td><td>Open it (1-9 or click) and answer. The only level with a siren.</td></tr>
+  <tr><td>DEFCON 2</td><td>Something the board measured looks off: a job behind schedule, a helper silent, a session near full context, or the board itself offline (it could hide a new ask).</td><td>Glance at the amber tile. Usually nothing; act only if it stays amber.</td></tr>
+  <tr><td>DEFCON 3</td><td>Sessions wait on a job (CI, a test run).</td><td>Nothing. They resume on their own.</td></tr>
+  <tr><td>DEFCON 4</td><td>Sessions are working.</td><td>Nothing.</td></tr>
+  <tr><td>DEFCON 5</td><td>All quiet: every session is idle.</td><td>Give one the next task.</td></tr></table>
+  <h3>Session states</h3>
+  <table><tr><th>State</th><th>How it is decided</th><th>What you do</th></tr>
+  <tr><td>NEEDS YOU</td><td>Claude Code reports a prompt open (permission, question, plan), or the last reply holds a command for you to run.</td><td>Answer the prompt, or run the command.</td></tr>
+  <tr><td>RUNNING</td><td>Claude Code reports the session busy.</td><td>Nothing.</td></tr>
+  <tr><td>WAITING ON JOB</td><td>A background job it started has not finished, and its process is still alive.</td><td>Nothing; it wakes when the job ends.</td></tr>
+  <tr><td>IDLE</td><td>Anything else: the turn is over. "for you:" shows its suggested next step and "waits on:" another session it named, never an alarm.</td><td>Read it when convenient.</td></tr></table>
+  <h3>Amber warnings (measured, never from a reply's wording)</h3>
+  <table><tr><th>Warning</th><th>How it is measured</th><th>What you do</th></tr>
+  <tr><td>job behind schedule</td><td>Running past the 80th percentile of at least 4 finished runs of the same kind in that session. The tile shows "usually X, now Y".</td><td>If a test run: a hang or a slow box. Look at the session's last output; stop it if it hangs.</td></tr>
+  <tr><td>helper silent 20m+</td><td>A helper agent's log has not changed for 20 minutes.</td><td>Open the session; the helper may be stuck on a long command.</td></tr>
+  <tr><td>board offline</td><td>A full-width amber banner after 15 s of failed polls in a row (each times out at 5 s); before that the badge only reads RETRYING. The tiles dim because they are stale. "board page error" is the same banner when the board answers but the page cannot draw it.</td><td>Offline: restart the board. Page error: reload; if it stays, it is a page bug.</td></tr>
+  <tr><td>context near full</td><td>90% of the session's own auto-compact size (else this box's usual).</td><td>Let it finish its step, then start it fresh or let it compact.</td></tr></table>
+  <h3>Header numbers</h3>
+  <table><tr><th>Number</th><th>Meaning</th></tr>
+  <tr><td>need you</td><td>Sessions in NEEDS YOU now.</td></tr>
+  <tr><td>you answer in</td><td>Median time today from a session needing you to it moving on.</td></tr>
+  <tr><td>wait on jobs</td><td>Sessions that can do nothing until a job ends. Throughput, not an action: never red.</td></tr>
+  <tr><td>all done by</td><td>The clock time the last session with an estimate should finish.</td></tr>
+  <tr><td>PRs touched</td><td>Pull requests sessions opened, pushed or linked today. Not merges.</td></tr>
+  <tr><td>load / cores</td><td>Box load against its cores; amber past the cores, when every job slows down.</td></tr>
+  <tr><td>tokens today</td><td>Tokens the open sessions and their helpers spent since midnight. This page calls no model.</td></tr></table>
+  <p>Estimates (~) are medians of this box's own finished runs. Esc closes.</p>
+</div></div>
+<script>
+const seen = new Map();   // sid -> {state, jobs, pct}: what the last poll showed, for motion cues
+let data = null, at = 0, focusSid = location.hash.slice(1) || null, first = true;   // #<sid> opens that session
+
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const dur = s => s == null ? "?" : s < 60 ? `${Math.max(0, Math.floor(s))}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h${String(Math.floor(s % 3600 / 60)).padStart(2, "0")}m`;
+const clock = t => new Date(t * 1000).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
+const tokens = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : Math.round(n / 1e3) + "k";
+const cls = s => s.state.split(" ")[0];
+
+function stat(n, k, tip, hot) { const s = el("div", "stat" + (hot ? " hot" : "")); s.title = tip; s.append(el("div", "n", n), el("div", "k", k)); return s; }
+
+function ring(s) {
+  const p = s.progress, g = el("div", "gauge" + (p.behind ? " behind" : "")), r = el("div", "ring" + (p.behind ? " behind" : ""));
+  const pct = el("div", "pct");
+  if (p.pct == null) pct.textContent = "·"; else { pct.textContent = p.pct; pct.append(el("small", null, "%")); }
+  const left = el("div", "left");
+  if (p.left != null) { left.dataset.left = p.left; left.dataset.at = clock(p.at); left.textContent = `~${dur(p.left)} · ${clock(p.at)}`; }
+  else left.textContent = p.text.replace(/ · \d+%$/, "");
+  r.append(pct); g.append(r, left);
+  g.title = (s.plan ? `${s.plan.done} of ${s.plan.total} plan steps done (${s.plan.name}). ` : "")
+    + "Minutes left come from how long the same things took before: jobs, replies, and this session's pace per plan step.";
+  const prev = seen.get(s.sid)?.pct ?? p.pct ?? 0;
+  r.style.setProperty("--p", prev);
+  requestAnimationFrame(() => requestAnimationFrame(() => r.style.setProperty("--p", p.pct ?? 0)));
+  return g;
+}
+
+function dial(value, word, tone, tip) {
+  const d = el("div", "dial " + tone); d.title = tip;
+  d.append(el("div", "n", value), el("div", "k", word)); return d;
+}
+
+function dials(s) {
+  const m = s.meters, box = el("div", "dials");
+  const grade = (v, hi, lo) => v == null ? "none" : v >= hi ? "good" : v >= lo ? "ok" : "bad";
+  box.append(
+    dial(m.working == null ? "—" : m.working + "%", "WORKING", grade(m.working, 60, 30),
+      "Share of the last hour this session spent replying. Time only watching a job or sitting idle does not count."),
+    dial(String(m.shipped), "PRS", m.shipped ? "good" : "none", "Pull requests this session opened or linked (touched, not merged)."),
+    dial(m.pace || "—", "PACE", {faster: "good", normal: "good", slower: "ok"}[m.pace] || "none",
+      "Its last 5 replies against its own usual reply length."),
+    dial(tokens(s.tokens.today), "TOKENS", s.tokens.today ? "ok" : "none",
+      `Tokens this session spent today: new input, cache writes and output, each reply once`
+      + `${s.tokens.helpers ? `, ${tokens(s.tokens.helpers)} of them by its helper agents` : ""}.`
+      + ` Plus ${tokens(s.tokens.cache)} re-read from cache (cheap).`));
+  return box;
+}
+
+function steps(s, max) {
+  const box = el("div", "list");
+  const open = s.plan ? s.plan.open : [];
+  for (const name of open.slice(0, max)) { const r = el("div", "step", name); r.title = name; box.append(r); }
+  const rest = (s.plan ? s.plan.total - s.plan.done : 0) - Math.min(open.length, max);
+  if (rest > 0) box.append(el("div", "more", `+${rest} more steps`));
+  for (const j of s.jobs.slice(0, max === 3 ? 2 : 99)) {
+    const row = el("div", "job" + (j.watch ? " watch" : "") + (j.late ? " late" : ""));
+    const l = el("div", "l"); l.append(el("em", null, j.kind), document.createTextNode(j.label)); l.title = j.label;
+    const bar = el("div", "bar");
+    if (!j.watch) { const b = el("b"); b.style.width = (j.frac == null ? 0 : Math.min(100, 100 * j.frac)) + "%"; bar.append(b); }
+    const t = el("div", "t", j.kind === "serve" ? "running" : j.watch ? "waiting" : j.when); t.title = j.when;
+    row.append(l, bar, t); box.append(row);
+  }
+  if (max === 3 && s.jobs.length > 2) box.append(el("div", "more", `+${s.jobs.length - 2} more jobs running`));
+  return box;
+}
+
+function foot(s) {
+  const f = el("div", "foot"), strip = el("div", "strip");
+  for (const c of s.timeline) strip.append(el("i", c));
+  strip.title = "Last hour, one block a minute: blue replying, amber only a job running, dim idle.";
+  const c = s.context, fuel = el("div", "fuel" + (c.pct >= 90 ? " hot" : c.pct >= 70 ? " warm" : ""));
+  fuel.append(document.createTextNode(`context ${c.pct}%${c.compactions ? ` · ${c.compactions}×` : ""}`));
+  const bar = el("div", "bar"), b = el("b"); b.style.width = c.pct + "%"; bar.append(b); fuel.append(bar);
+  const basis = {own: "(the size it last compacted at)", box: "(the size sessions on this box compact at)", assumed: "(assumed 1M)"}[c.basis];
+  fuel.title = `${tokens(c.used)} of ${tokens(c.full)} ${basis}`
+    + (c.compactions ? `; compacted ${c.compactions} times` : "") + ". Near full means it will compact soon and slow down.";
+  f.append(strip, fuel);
+  return f;
+}
+
+function tile(s, big) {
+  const was = seen.get(s.sid);
+  let motion = "";
+  if (!big && !first && !was) motion = " enter";
+  else if (!big && was && was.state !== s.state) motion = " changed";
+  else if (!big && was && s.jobs.length < was.jobs) motion = " flash";
+  const warn = s.warn.length && s.state !== "NEEDS YOU";
+  const t = el("div", "tile " + cls(s) + motion + (warn ? " warn" : ""));
+  const top = el("div", "top");
+  top.append(el("span", "name", s.name), el("span", "sid", s.sid), el("span", "state", s.state));
+  const title = el("div", "title", s.title || "—"); title.title = s.title || "";
+  const what = el("div", "what");
+  what.append(el("div", "now", s.state === "NEEDS YOU" ? `asks: ${s.ask}` : s.waits_on && s.state === "IDLE"
+    ? `waits on: ${s.waits_on}` : s.for_you && s.state === "IDLE" ? `for you: ${s.for_you}`
+    : `now: ${s.now || "—"}` + (s.ago ? ` · ${s.ago} ago` : "")), dials(s));
+  const mid = el("div", "mid"); mid.append(ring(s), what);
+  t.append(top, ...(warn ? [el("div", "warning", "⚠ " + s.warn.join(" · "))] : []), title, mid, steps(s, big ? 99 : 3), foot(s));
+  if (big) {
+    t.append(el("div", "legend"));
+    t.lastChild.append(...[["w", "replying"], ["j", "only a job running"], ["y", "idle"]].map(([k, w]) => {
+      const x = el("span"); x.append(el("i", k), document.createTextNode(w)); return x; }));
+    if (s.ask) t.append(el("div", "sec", "Asks you"), el("div", "sum", s.ask));
+    if (s.waits_on) t.append(el("div", "sec", "Its last reply says it waits on"), el("div", "sum", s.waits_on));
+    if (s.for_you) t.append(el("div", "sec", "Its last reply leaves you"), el("div", "sum", s.for_you));
+    if (s.next) t.append(el("div", "sec", "Next"), el("div", "sum", s.next));
+    t.append(el("div", "sec", s.summary_age ? `Its own summary · ${s.summary_age} ago` : "Summary"),
+      el("div", "sum", s.summary || "No summary yet."));
+    if (s.reply) t.append(el("div", "sec", "Last reply, end"), el("div", "sum", s.reply.slice(-600)));
+    const about = [s.plan_title && `plan: ${s.plan_title}`, s.started_as && `started as: ${s.started_as}`].filter(Boolean);
+    if (about.length) t.append(el("div", "meta", about.join(" · ")));
+    const prs = s.prs.length ? ` · PRs ${s.prs.join(" ")}` : "";
+    t.append(el("div", "meta", `branch ${s.branch || "?"} · up ${s.uptime} · ${s.finished} jobs finished${prs} · ETA ${s.eta}`));
+    const close = el("div", "close", "ESC ✕"); t.append(close);
+  }
+  t.onclick = big ? null : () => openFocus(s.sid);
+  return t;
+}
+
+function openFocus(sid) { focusSid = sid; history.replaceState(null, "", "#" + sid); renderFocus(); }
+function renderFocus() {
+  const box = document.getElementById("focus"), s = data && data.sessions.find(x => x.sid === focusSid);
+  if (!s) { box.className = ""; box.replaceChildren(); focusSid = null; if (location.hash) history.replaceState(null, "", location.pathname); return; }
+  box.className = "on"; box.replaceChildren(tile(s, true));
+}
+
+function header(rows) {
+  const need = rows.filter(s => s.state === "NEEDS YOU").length;
+  const plans = new Map(rows.filter(s => s.plan).map(s => [s.plan.name, s.plan]));
+  const done = [...plans.values()].reduce((n, p) => n + p.done, 0), total = [...plans.values()].reduce((n, p) => n + p.total, 0);
+  const lefts = rows.map(s => s.progress.left).filter(x => x != null), onJobs = rows.filter(s => s.state === "WAITING ON JOB");
+  const today = rows.reduce((n, s) => n + s.tokens.today, 0), cache = rows.reduce((n, s) => n + s.tokens.cache, 0);
+  document.getElementById("stats").replaceChildren(
+    stat(rows.length, "sessions", "Open Claude Code sessions on this box."),
+    stat(rows.filter(s => s.state === "RUNNING").length, "working", "Sessions working right now."),
+    stat(need, "need you", "Sessions with a prompt open (permission, question, plan) or a command in their last reply for you to run. A suggested next step does not count. Waiting on a job or another session does not count.", need > 0),
+    stat(data.waits.answered ? dur(data.waits.median) : "—", "you answer in",
+      `Median time from a session asking you to it moving on, over the ${data.waits.answered} asks answered today`
+      + (data.waits.longest != null ? ` (longest ${dur(data.waits.longest)})` : "") + ". Every wait is logged in waits.jsonl in the state dir."),
+    stat(onJobs.length, "wait on jobs", "Sessions with nothing to do until a job (CI, a test run) finishes"
+      + (onJobs.length ? `; the longest has waited ${dur(Math.max(...onJobs.map(s => s.waited || 0)))}.` : ".") + " Throughput, not an action: never red."),
+    stat(rows.reduce((n, s) => n + s.jobs.length, 0), "jobs", "Background jobs and helper agents running."),
+    stat(total ? Math.round(100 * done / total) + "%" : "—", "plans done", `${done} of ${total} steps across ${plans.size} plans.`),
+    stat(lefts.length ? "~" + new Date(Date.now() + 1000 * Math.max(...lefts)).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : "—",
+      "all done by", lefts.length ? `When the last session with an estimate should finish: ~${dur(Math.max(...lefts))} from now, from each session's own pace.` : "No session has an estimate yet."),
+    stat(new Set(rows.flatMap(s => s.prs_today)).size, "PRs touched", "Different pull requests sessions opened, pushed or linked today. Not merges."),
+    stat(tokens(today), "tokens today", `Tokens the open sessions and their helpers spent since midnight (new input, cache writes, output; each reply once), plus ${tokens(cache)} re-read from cache. This page itself calls no model.`),
+    stat(`${data.load}/${data.cores}`, "load / cores", "Box load (1 minute) against its cores. Past the cores, work queues and every job runs slower.",
+      data.load !== "?" && +data.load > data.cores));
+  dayStats();
+}
+
+function dayStats() {   // the day's warning stats, from alerts.jsonl and waits.jsonl in the state dir
+  const a = data.alerts, box = document.getElementById("today");
+  if (!a) return;
+  const table = (head, rows) => {
+    const t = el("table"), h = el("tr");
+    for (const c of head) h.append(el("th", "", c));
+    t.append(h);
+    for (const r of rows) { const tr = el("tr"); for (const c of r) tr.append(el("td", "", String(c))); t.append(tr); }
+    return rows.length ? t : el("p", "", "None yet today.");
+  };
+  const pairs = o => Object.entries(o || {});
+  const hours = o => pairs(o).sort((x, y) => +x[0] - +y[0]);
+  box.replaceChildren(el("h3", "", "Today: which warnings were worth having"),
+    table(["Warning", "Times", "Median length", "Led to NEEDS YOU"], pairs(a.by_kind).map(([k, v]) =>
+      [k, v.count, v.median == null ? "—" : dur(v.median), v.to_you == null ? "—" : v.to_you + "%"])),
+    el("p", "", "A warning that rarely leads to NEEDS YOU and clears by itself is noise: raise its threshold."),
+    el("h3", "", "Behind schedule, by job"), table(["Job", "Times"], pairs(a.behind_by_job)),
+    el("h3", "", "Helpers gone silent, by type"), table(["Agent type", "Times"], pairs(a.silent_by_type)),
+    el("h3", "", "Time sessions sat waiting on jobs, by hour"), table(["Hour", "Minutes"], hours(a.job_wait_by_hour)),
+    el("h3", "", "Asks, by hour"), table(["Hour", "Asks", "You answered in"], hours(a.asks_by_hour).map(([h, v]) => [h, v.count, dur(v.median)])),
+    el("h3", "", "Compactions, by session"), table(["Session", "Compactions"], pairs(a.compactions)));
+}
+
+function needs(rows) {
+  const box = document.getElementById("needs"), waiting = rows.filter(s => s.state === "NEEDS YOU");
+  document.title = waiting.length ? `⚠ (${waiting.length}) needs you · Battle Station` : "Battle Station";   // shows in the tab
+  if (!waiting.length) { box.replaceChildren(); return; }
+  box.replaceChildren(el("span", "lbl", `⚠ ${waiting.length} WAITING ON YOU ▸`), ...waiting.map(s => {
+    const a = el("div", "ask"); a.onclick = () => openFocus(s.sid);
+    a.append(el("b", null, s.name), el("span", null, s.ask || s.topic || ""), el("em", null, s.waited != null ? `waiting ${dur(s.waited)}` : ""));
+    a.title = s.ask || ""; return a;
+  }));
+}
+
+// The alarm. Off-screen sound needs a click first (browser rule), so the siren is opt-in and remembered.
+// Acknowledging silences it until a session that was not waiting before starts waiting on you.
+const store = {get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
+               set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* private window */ } }};
+let audio = null, acked = new Set(), shown = new Set(), lastSiren = 0, level = 5, armed = store.get("siren") === "on";
+const openAcked = new URLSearchParams(location.search).has("ack");   // ?ack: asks already up when the page opens start acknowledged (screenshots, a second screen)
+
+function siren() {   // three rising wails, about 1.5 s, generated here: no sound files
+  if (!armed || !audio || audio.state !== "running") return;
+  const t0 = audio.currentTime, osc = audio.createOscillator(), vol = audio.createGain();
+  osc.type = "sawtooth";
+  for (let i = 0; i < 3; i++) {
+    osc.frequency.setValueAtTime(520, t0 + i * .5); osc.frequency.exponentialRampToValueAtTime(1500, t0 + i * .5 + .45);
+  }
+  vol.gain.setValueAtTime(.0001, t0); vol.gain.exponentialRampToValueAtTime(.25, t0 + .05);
+  vol.gain.setValueAtTime(.25, t0 + 1.4); vol.gain.exponentialRampToValueAtTime(.0001, t0 + 1.5);
+  osc.connect(vol).connect(audio.destination); osc.start(t0); osc.stop(t0 + 1.55);
+}
+
+function warn() {   // DEFCON 2: two short tones once, not a siren; you may have nothing to do yet
+  if (!armed || !audio || audio.state !== "running") return;
+  for (const [at, hz] of [[0, 880], [.25, 660]]) {
+    const t = audio.currentTime + at, osc = audio.createOscillator(), vol = audio.createGain();
+    osc.frequency.value = hz; vol.gain.setValueAtTime(.18, t); vol.gain.exponentialRampToValueAtTime(.0001, t + .2);
+    osc.connect(vol).connect(audio.destination); osc.start(t); osc.stop(t + .22);
+  }
+}
+
+function ladder(n, why) {   // n: 1 worst ... 5 calm; tones on the way down, never on the way up
+  const box = document.getElementById("defcon");
+  box.className = "defcon d" + n;
+  box.replaceChildren(el("span", "k", "DEFCON"), ...[1, 2, 3, 4, 5].map(k => el("i", `l${k}` + (k === n ? " on" : ""), String(k))), el("span", "why", why));
+  if (n === 2 && level > 2) warn();
+  level = n;
+}
+
+function armButton() {
+  const b = document.getElementById("arm"), sleeping = armed && (!audio || audio.state !== "running");
+  b.className = !armed ? "" : sleeping ? "wake" : "on";
+  b.textContent = !armed ? "ARM SIREN" : sleeping ? "CLICK: ENABLE SOUND" : "SIREN ARMED";
+}
+
+function wakeAudio() {   // must run inside a click or key press
+  try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume().then(armButton); } catch (e) { audio = null; }
+}
+
+document.getElementById("arm").onclick = e => {
+  e.stopPropagation();
+  if (armed && audio && audio.state === "running") { armed = false; store.set("siren", "off"); armButton(); return; }
+  armed = true; store.set("siren", "on"); wakeAudio();
+  if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
+  setTimeout(siren, 150);   // test burst, so you hear what it sounds like
+  armButton();
+};
+document.addEventListener("pointerdown", () => { if (armed && (!audio || audio.state !== "running")) wakeAudio(); });
+
+function acknowledge() { acked = new Set(shown); document.getElementById("alert").className = ""; }
+
+function alarm(rows) {
+  const waiting = rows.filter(s => s.state === "NEEDS YOU"), now = new Set(waiting.map(s => s.sid));
+  for (const sid of [...acked]) if (!now.has(sid)) acked.delete(sid);   // it stopped asking: a new ask alarms again
+  if (openAcked && first) for (const sid of now) acked.add(sid);
+  const fresh = waiting.filter(s => !shown.has(s.sid));
+  shown = now;
+  ladder(data.defcon.level, data.defcon.why);
+  const box = document.getElementById("alert"), loud = waiting.some(s => !acked.has(s.sid));
+  if (!loud) { box.className = ""; box.replaceChildren(); return; }
+  const btn = el("button", null, "ACKNOWLEDGE"); btn.onclick = acknowledge;
+  box.replaceChildren(el("div", "big", `⚠ ${waiting.length} NEED${waiting.length === 1 ? "S" : ""} YOU`),
+    el("div", "who"), btn, el("div", "hint", "Esc or ACKNOWLEDGE silences this until another session needs you"));
+  box.children[1].append(...waiting.map(s => {
+    const r = el("div"); r.append(el("b", null, s.name), document.createTextNode(s.ask || s.topic || ""));
+    r.title = s.ask || ""; r.onclick = () => { acknowledge(); openFocus(s.sid); }; return r;
+  }));
+  box.className = "on";
+  if (fresh.length) {
+    if ("Notification" in window && Notification.permission === "granted")
+      for (const s of fresh) try { new Notification(`⚠ ${s.name} needs you`, {body: s.ask || "", tag: s.sid, requireInteraction: true}); } catch (e) { /* not allowed here */ }
+    lastSiren = 0;
+  }
+  if (Date.now() - lastSiren > 30000) { siren(); lastSiren = Date.now(); }   // repeats every 30 s until acknowledged
+}
+
+function render() {
+  const rows = data.sessions;   // the server lines them up in order of completion
+  header(rows); needs(rows); alarm(rows);
+  document.getElementById("untested").textContent = (data.untested || []).length
+    ? `Claude Code ${data.untested.join(", ")} is newer than this board was checked against; if a number looks wrong, run --doctor` : "";
+  document.getElementById("grid").replaceChildren(...(rows.length ? rows.map(s => tile(s, false)) : [el("div", "empty", "NO OPEN SESSIONS")]));
+  renderFocus();
+  seen.clear();
+  for (const s of rows) seen.set(s.sid, {state: s.state, jobs: s.jobs.length, pct: s.progress.pct});
+  first = false;
+}
+
+function countdown() {   // minutes left tick down between polls
+  const gone = (Date.now() - at) / 1000;
+  for (const e of document.querySelectorAll("[data-left]")) e.textContent = `~${dur(Math.max(0, +e.dataset.left - gone))}` + (e.dataset.at ? ` · ${e.dataset.at}` : " left");
+}
+
+// No false alarms: one dropped or slow poll is not an outage. The banner waits for OFFLINE_AFTER of failures in a row.
+const OFFLINE_AFTER = 15000, FETCH_TIMEOUT = 5000;
+let failingSince = null, linkShown = false;
+
+function link(problem, detail) {   // problem: null (all clear), "offline" or "page"
+  const box = document.getElementById("link"), grid = document.getElementById("grid"), live = document.getElementById("live");
+  if (!problem) {
+    failingSince = null;
+    if (linkShown) { box.className = ""; box.replaceChildren(); grid.classList.remove("stale"); linkShown = false; }
+    live.className = "live"; live.lastChild.textContent = "LIVE"; live.title = "";
+    return;
+  }
+  if (failingSince == null) failingSince = at || Date.now();   // silent since the last good answer, not the first miss
+  const gone = Date.now() - failingSince;
+  live.className = "live off"; live.lastChild.textContent = problem === "page" ? "PAGE ERROR" : gone >= OFFLINE_AFTER ? "OFFLINE" : "RETRYING";
+  live.title = detail;
+  if (gone < OFFLINE_AFTER) return;
+  const since = new Date(failingSince).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+  box.className = "on"; grid.classList.add("stale");
+  box.replaceChildren(el("span", "", problem === "page" ? "⚠ BOARD PAGE ERROR" : "⚠ BOARD OFFLINE"),
+    el("small", "", (problem === "page" ? `The board answers but this page cannot draw it, since ${since}: ${detail}. Reload; if it stays, it is a bug in the page.`
+      : `No answer from the board since ${since} (${dur(gone / 1000)}). Tiles below are stale and a new ask would not show. `
+        + "Restart it: python3 bin/session-board.py")));
+  if (!linkShown) { linkShown = true; if (level > 1) ladder(2, problem === "page" ? "board page error" : "board offline"); }
+}
+
+async function tick() {
+  const stop = typeof AbortController === "function" ? new AbortController() : null;
+  const timer = stop ? setTimeout(() => stop.abort(), FETCH_TIMEOUT) : 0;
+  try {
+    data = await (await fetch("api", {cache: "no-store", signal: stop && stop.signal})).json(); at = Date.now();
+  } catch (e) {
+    link("offline", String(e && e.message || e));
+    return;
+  } finally {
+    clearTimeout(timer);
+  }
+  try {
+    render();
+    link(null);
+  } catch (e) {   // the server answered: a page bug, never "offline"
+    console.error(e);
+    link("page", String(e && e.message || e));
+  }
+}
+
+document.getElementById("focus").onclick = e => { if (e.target.id === "focus" || e.target.className === "close") { focusSid = null; renderFocus(); } };
+document.addEventListener("keydown", e => {
+  const legend = document.getElementById("legend");
+  if (e.key === "?") legend.classList.toggle("on");
+  else if (e.key === "Escape" && document.getElementById("alert").classList.contains("on")) acknowledge();
+  else if (e.key === "Escape" && legend.classList.contains("on")) legend.classList.remove("on");
+  else if (e.key === "Escape") { focusSid = null; renderFocus(); }
+  else if (/^[1-9]$/.test(e.key) && data) { const s = data.sessions[+e.key - 1]; if (s) openFocus(s.sid); }
+});
+setInterval(() => { document.getElementById("clock").textContent = new Date().toLocaleTimeString([], {hour12: false}); countdown(); }, 1000);
+document.getElementById("help").onclick = () => document.getElementById("legend").classList.add("on");
+document.getElementById("legend").onclick = e => { if (e.target.id === "legend") e.target.classList.remove("on"); };
+tick(); setInterval(tick, 2000);
+</script>
+</body>
+</html>

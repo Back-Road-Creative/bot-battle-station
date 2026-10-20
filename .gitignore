@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+# your own config and logs stay out of the repo
+bin/session-board.toml
+state/
+demo.png

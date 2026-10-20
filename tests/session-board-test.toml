@@ -1,0 +1,4 @@
+# The test suite's config for bin/session-board.py: invented commands, so no test depends on one box.
+ask_commands = ['sudo\s.+', '.*\bdeploy-now\b.*']
+watch_commands = ["waitfor"]
+plan_dirs = ["plans"]

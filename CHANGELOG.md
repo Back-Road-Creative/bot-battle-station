@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Fixed
+
+- `SHA256SUMS` on a release names the files as they download (`session-board.py`,
+  not `bin/session-board.py`), so `sha256sum -c SHA256SUMS` works.
+
 ## 0.1.0
 
 ### Added

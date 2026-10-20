@@ -9,7 +9,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - `SHA256SUMS` on a release names the files as they download (`session-board.py`,
-  not `bin/session-board.py`), so `sha256sum -c SHA256SUMS` works.
+  not `bin/session-board.py`), so `sha256sum -c SHA256SUMS` works. The release
+  folder is built by `scripts/release-dist.sh`, which CI also runs on every pull
+  request, so a broken checksum file fails CI instead of a release.
 
 ## 0.1.0
 

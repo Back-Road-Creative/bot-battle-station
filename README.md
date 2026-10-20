@@ -115,13 +115,16 @@ A strip under the header shows, per bot, its live sessions and each usage window
 weekly) with % used and time to reset. Codex writes its limits into its own session files, so
 they appear on their own. Claude Code writes its limits nowhere on disk; it hands them only to
 your status line command, as `rate_limits` on its stdin. To show them, add one line to your
-status line script, which already has that JSON in a variable (`$input` here):
+status line script, which already has that JSON in a variable (`$input` here). It writes only when
+Claude Code sent limits, and swaps the file in whole, so the board never reads a half-written one:
 
 ```bash
-mkdir -p ~/.local/state/bot-battle-station && printf '%s' "$input" | jq -c '.rate_limits // empty' > ~/.local/state/bot-battle-station/claude-limits.json
+d=~/.local/state/bot-battle-station; l=$(printf '%s' "$input" | jq -c '.rate_limits // empty' 2>/dev/null); [ -n "$l" ] && mkdir -p "$d" && printf '%s\n' "$l" > "$d/claude-limits.json.tmp" && mv "$d/claude-limits.json.tmp" "$d/claude-limits.json"
 ```
 
-Without that file the strip says so. It shows "read … ago" when a file is over an hour old.
+Without that file the strip says so. It shows "read … ago" when a file is over an hour old. A
+window is left out when its percentage is not a number or its reset time has passed (the file is
+stale); a percentage outside 0-100 is shown clamped.
 
 ## A wall screen on Windows
 

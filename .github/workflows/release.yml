@@ -43,11 +43,14 @@ jobs:
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
+        # Release files are flat (no bin/), so SHA256SUMS names them flat too and
+        # is checked here the way a downloader runs it: sha256sum -c in one folder.
         run: |
-          sha256sum bin/session-board.py bin/session-board.html bin/session-board-kiosk.ps1 demo.png > SHA256SUMS
-          files="bin/session-board.py bin/session-board.html bin/session-board-kiosk.ps1 demo.png SHA256SUMS"
+          mkdir dist
+          cp bin/session-board.py bin/session-board.html bin/session-board-kiosk.ps1 demo.png dist/
+          (cd dist && sha256sum session-board.py session-board.html session-board-kiosk.ps1 demo.png > SHA256SUMS && sha256sum -c SHA256SUMS)
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" $files --clobber
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
           else
-            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes $files
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes dist/*
           fi

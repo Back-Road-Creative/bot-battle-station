@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Added
+
+- Codex sessions: a tile per live Codex session, marked CODEX (Claude Code's are marked
+  CLAUDE), read from Codex's own session files (`--codex-dir`).
+- A per-bot strip under the header: live sessions per bot and each usage window with % used
+  and time to reset. Codex's come from its session files; Claude's from a file your status line
+  writes (`claude_limits`; README). `/api` gains `bots` and a `bot` key on every session.
+
 ### Fixed
 
 - `SHA256SUMS` on a release names the files as they download (`session-board.py`,

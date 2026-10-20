@@ -87,6 +87,7 @@ plan_dirs = ["plans"]
 # (tab-separated: session id or its first characters, name, role) and where the waits and alerts logs go
 # roster = "session-roster.tsv"
 # state_dir = "state"
+# claude_limits = "state/claude-limits.json"
 ```
 
 | Key | Default |
@@ -96,9 +97,31 @@ plan_dirs = ["plans"]
 | `plan_dirs` | none |
 | `roster` | names come from Claude Code's registry |
 | `state_dir` | `$XDG_STATE_HOME/bot-battle-station`, else `~/.local/state/bot-battle-station` |
+| `claude_limits` | `claude-limits.json` in `state_dir` |
 
 Claude Code's files are read from `--claude-dir`, default `$CLAUDE_CONFIG_DIR`, else
 `~/.claude`.
+
+## Codex sessions and usage limits
+
+Codex sessions get tiles too, marked CODEX (Claude Code's are marked CLAUDE). A Codex session is
+live while a `codex` process holds its rollout file open (`--codex-dir`, default `$CODEX_HOME`,
+else `~/.codex`); without `/proc`, while its rollout was written in the last 10 minutes. Its
+helper threads (reviews, sub-agents) are not tiles. A Codex tile is RUNNING between Codex's own
+turn-start and turn-end records, else IDLE; it shows the thread name, its last message and its
+context use. The terminal views (`--tui`, `--once`) show Claude Code sessions only.
+
+A strip under the header shows, per bot, its live sessions and each usage window (5-hour,
+weekly) with % used and time to reset. Codex writes its limits into its own session files, so
+they appear on their own. Claude Code writes its limits nowhere on disk; it hands them only to
+your status line command, as `rate_limits` on its stdin. To show them, add one line to your
+status line script, which already has that JSON in a variable (`$input` here):
+
+```bash
+mkdir -p ~/.local/state/bot-battle-station && printf '%s' "$input" | jq -c '.rate_limits // empty' > ~/.local/state/bot-battle-station/claude-limits.json
+```
+
+Without that file the strip says so. It shows "read … ago" when a file is over an hour old.
 
 ## A wall screen on Windows
 
@@ -117,7 +140,9 @@ powershell.exe -ExecutionPolicy Bypass -File "$(wslpath -w bin/session-board-kio
 ## Privacy and safety
 
 - **No tokens, no network, no subprocess.** It reads `~/.claude/sessions/*.json`, the session
-  transcripts and the helper-agent metadata, and only the bytes appended since the last poll.
+  transcripts and the helper-agent metadata, and only the bytes appended since the last poll;
+  for Codex, the end of each live rollout file (re-read only when it changes) and its thread
+  names, never its `auth.json`.
   `tests/test_session_board.py::test_spends_no_tokens` holds that.
 - **Served on 127.0.0.1 only**, and only to a request whose `Host` is `localhost`, `127.0.0.1`
   or `[::1]`, so a web page whose DNS name flips to 127.0.0.1 cannot read your transcripts.

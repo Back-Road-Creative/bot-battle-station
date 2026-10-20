@@ -116,6 +116,16 @@ header {
 #untested { margin: 8px 24px 0; padding: 6px 12px; border: 1px dashed var(--amber); color: var(--amber);
   font: 600 12px var(--mono); letter-spacing: .08em; }
 #untested:empty { display: none; }
+#bots { display: flex; flex-wrap: wrap; gap: 10px 24px; margin: 10px 24px 0; font: 12px var(--mono); color: var(--muted); }
+#bots:empty { display: none; }
+.botcard { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.bot { font: 600 10.5px var(--mono); letter-spacing: .14em; padding: 1px 6px; border: 1px solid var(--b); color: var(--b); border-radius: 3px; }
+.bot.claude { --b: #e8a87c; } .bot.codex { --b: #7cc4e8; }
+.lim { white-space: nowrap; } .lim b { font-weight: 600; color: var(--text); margin-right: 6px; }
+.lim i { display: inline-block; width: 60px; height: 6px; border-radius: 3px; vertical-align: 1px; margin-right: 4px;
+  background: linear-gradient(90deg, var(--cyan) var(--u), rgba(80, 100, 140, .22) 0); }
+.lim.warm i { background: linear-gradient(90deg, var(--amber) var(--u), rgba(80, 100, 140, .22) 0); }
+.lim.hot i { background: linear-gradient(90deg, var(--red) var(--u), rgba(80, 100, 140, .22) 0); }
 #grid.stale { opacity: .35; filter: grayscale(.8); }
 #needs .lbl { font: 700 15px var(--mono); letter-spacing: .18em; color: #fff; text-shadow: 0 0 12px var(--red); }
 .ask { display: flex; gap: 8px; align-items: baseline; max-width: 520px; padding: 7px 12px; cursor: pointer;
@@ -152,7 +162,7 @@ main { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr
 @media (prefers-reduced-motion: reduce) { .tile.NEEDS, #needs, .stat.hot { animation: none; } }
 .tile.IDLE { opacity: .8; }
 .top { display: flex; align-items: baseline; gap: 8px; }
-.name { font: 600 15px var(--mono); color: #fff; }
+.name { font: 600 15px var(--mono); color: #fff; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sid { font: 12px var(--mono); color: var(--muted); }
 .state { margin-left: auto; font: 600 11px var(--mono); letter-spacing: .16em; color: var(--c); text-shadow: 0 0 10px var(--c); white-space: nowrap; }
 .state::before { content: "● "; }
@@ -243,6 +253,7 @@ main { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr
 <div id="alert"></div>
 <div id="link"></div>
 <div id="untested"></div>
+<div id="bots" title="Each bot's live sessions and usage limits. Codex limits come from its own session files; Claude's from the file your status line writes (see the README)."></div>
 <div id="needs"></div>
 <main id="grid"></main>
 <div class="hint">Click a tile or press 1-9 for the full view · Esc closes</div>
@@ -369,7 +380,8 @@ function tile(s, big) {
   const warn = s.warn.length && s.state !== "NEEDS YOU";
   const t = el("div", "tile " + cls(s) + motion + (warn ? " warn" : ""));
   const top = el("div", "top");
-  top.append(el("span", "name", s.name), el("span", "sid", s.sid), el("span", "state", s.state));
+  top.append(el("span", "bot " + s.bot, s.bot === "codex" ? "CODEX" : "CLAUDE"), el("span", "name", s.name),
+    el("span", "sid", s.sid), el("span", "state", s.state));
   const title = el("div", "title", s.title || "—"); title.title = s.title || "";
   const what = el("div", "what");
   what.append(el("div", "now", s.state === "NEEDS YOU" ? `asks: ${s.ask}` : s.waits_on && s.state === "IDLE"
@@ -548,9 +560,28 @@ function alarm(rows) {
   if (Date.now() - lastSiren > 30000) { siren(); lastSiren = Date.now(); }   // repeats every 30 s until acknowledged
 }
 
+const days = s => s >= 172800 ? `${Math.floor(s / 86400)}d${Math.floor(s % 86400 / 3600)}h` : dur(s);   // a weekly reset reads in days
+
+function bots(b) {   // the top strip: per bot, live sessions and each usage window
+  const cards = [["claude", "CLAUDE"], ["codex", "CODEX"]].filter(([k]) => b && b[k]).map(([k, label]) => {
+    const v = b[k], c = el("div", "botcard");
+    c.append(el("span", "bot " + k, label), el("span", null, `${v.sessions} session${v.sessions === 1 ? "" : "s"}`));
+    if (!v.limits.length) c.append(el("span", "lim", k === "claude" ? "limits: no status-line file" : "limits: none read yet"));
+    for (const w of v.limits) {
+      const l = el("span", "lim" + (w.used >= 90 ? " hot" : w.used >= 75 ? " warm" : "")), bar = el("i");
+      bar.style.setProperty("--u", `${w.used}%`);
+      l.append(el("b", null, w.name), bar, document.createTextNode(`${w.used}%` + (w.resets ? ` · resets in ${days(w.resets - data.now)}` : "")));
+      c.append(l);
+    }
+    if (v.age > 3600) c.append(el("span", "lim", `read ${dur(v.age)} ago`));
+    return c;
+  });
+  document.getElementById("bots").replaceChildren(...cards);
+}
+
 function render() {
   const rows = data.sessions;   // the server lines them up in order of completion
-  header(rows); needs(rows); alarm(rows);
+  header(rows); needs(rows); alarm(rows); bots(data.bots);
   document.getElementById("untested").textContent = (data.untested || []).length
     ? `Claude Code ${data.untested.join(", ")} is newer than this board was checked against; if a number looks wrong, run --doctor` : "";
   document.getElementById("grid").replaceChildren(...(rows.length ? rows.map(s => tile(s, false)) : [el("div", "empty", "NO OPEN SESSIONS")]));

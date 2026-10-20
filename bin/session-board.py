@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live terminal dashboard of the open Claude Code sessions on this box.
+"""Live terminal dashboard of the open Claude Code (and Codex) sessions on this box.
 
     python3 bin/session-board.py            # web page at http://localhost:8765 (open it in Windows)
     python3 bin/session-board.py --tui      # full-screen terminal board, q quits
@@ -7,18 +7,21 @@
     python3 bin/session-board.py --demo     # made-up sessions in every state, for a first look or a screenshot
     python3 bin/session-board.py --doctor   # what it found to read, for a bug report (counts and key names only)
 
-Reads only files Claude Code already writes, so it spends no tokens and calls
+Reads only files Claude Code and Codex already write, so it spends no tokens and calls
 no model, outbound network or subprocess (the page is served on 127.0.0.1 only):
 
     $CLAUDE_CONFIG_DIR (else $HOME/.claude)/sessions/<pid>.json   live registry: name, sessionId, status
     .../projects/*/<sessionId>.jsonl              transcript: title, last prompt, away
                                               summary, tool calls, background tasks
     .../projects/*/<sessionId>/subagents/agent-*.meta.json   sub-agent jobs
+    $CODEX_HOME (else $HOME/.codex)/sessions/YYYY/MM/DD/rollout-*.jsonl   Codex sessions a codex
+                                              process holds open, and Codex's own usage limits
+    <state_dir>/claude-limits.json            Claude's usage limits, if your status line writes them
 
 An optional TOML config (``--config``; default ``session-board.toml`` beside this file) names what
 is particular to one box: commands that mean "you run this" (``ask_commands``), watcher commands
 (``watch_commands``), plan folders (``plan_dirs``), a roster TSV of names (``roster``) and where the
-logs go (``state_dir``). With none, only Claude Code's own prompt state is red.
+logs go (``state_dir``) and the Claude limits file (``claude_limits``). With none, only Claude Code's own prompt state is red.
 
 A session is identified the way its status line shows it: the roster name and
 role when registered, else the derived name, plus the first 8 hex of the id.
@@ -486,9 +489,77 @@ def last_action(path: Path) -> str:
     return ""
 
 
+CODEX_PROC_RE = re.compile(rb"codex")  # a process whose command line names Codex; its open rollouts are live sessions
+CODEX_RECENT = 600  # no process table: a rollout written this recently counts as a live session
+CODEX_TAIL = 512 * 1024  # a rollout runs to megabytes; its newest records sit at the end
+CODEX_WINDOWS = {300: "5h", 10080: "weekly"}  # rate-limit window minutes -> the name Codex's own UI gives it
+CLAUDE_WINDOWS = (("five_hour", "5h"), ("seven_day", "weekly"))  # the status line's rate_limits keys
+
+
+def codex_open_files() -> set[Path] | None:
+    """Rollout files a Codex process holds open: its live sessions. None where there is no /proc."""
+    if not (PROC / "self").exists():
+        return None
+    held = set()
+    for pid in PROC.glob("[0-9]*"):
+        try:
+            if not CODEX_PROC_RE.search((pid / "cmdline").read_bytes()):
+                continue
+            held.update(Path(t) for t in (os.readlink(fd) for fd in (pid / "fd").iterdir()) if t.endswith(".jsonl"))
+        except OSError:
+            continue  # gone, or another user's
+    return held
+
+
+def codex_rollout(path: Path) -> dict:
+    """What a Codex rollout says: its session record (the first line) and the newest of each kind at its end."""
+    out = {"meta": {}, "running": False, "said": "", "said_ts": None, "asked": "", "info": None, "limits": None,
+           "limits_ts": None}
+    with path.open("rb") as fh:
+        first = fh.readline()
+        size = fh.seek(0, 2)
+        fh.seek(max(len(first), size - CODEX_TAIL))
+        lines = [first, *fh.read().splitlines()]
+    for line in lines:
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue  # the tail's cut first line, or a line still being written
+        pay = rec.get("payload") or {}
+        kind, ts = pay.get("type") if rec.get("type") == "event_msg" else rec.get("type"), parse_ts(rec.get("timestamp"))
+        if kind == "session_meta":
+            out["meta"] = pay
+        elif kind in ("task_started", "task_complete", "turn_aborted"):
+            out["running"] = kind == "task_started"
+        elif kind == "agent_message":
+            out["said"], out["said_ts"] = str(pay.get("message") or ""), ts
+        elif kind == "user_message":
+            out["asked"] = str(pay.get("message") or "")
+        elif kind == "token_count":
+            out["info"] = pay.get("info") or out["info"]
+            if pay.get("rate_limits"):
+                out["limits"], out["limits_ts"] = pay["rate_limits"], ts
+    return out
+
+
+def codex_limits(limits: dict | None) -> list[dict]:
+    """Codex's rate-limit windows, worded the way the page shows both bots."""
+    out = []
+    for key in ("primary", "secondary"):
+        w = (limits or {}).get(key)
+        if w and w.get("used_percent") is not None:
+            mins = int(w.get("window_minutes") or 0)
+            out.append({"name": CODEX_WINDOWS.get(mins, f"{mins // 60}h"), "used": round(w["used_percent"]),
+                        "resets": int(w["resets_at"]) if w.get("resets_at") else None})
+    return out
+
+
 class Board:
-    def __init__(self, claude_dir: Path, roster: Path | None):
+    def __init__(self, claude_dir: Path, roster: Path | None, codex_dir: Path | None = None,
+                 limits_file: Path | None = None):
         self.claude_dir, self.roster_path = claude_dir, roster
+        self.codex_dir, self.limits_file = codex_dir, limits_file
+        self.rollouts: dict[Path, tuple[tuple[int, int], dict]] = {}  # path -> ((mtime_ns, size), what it says)
         self.transcripts: dict[str, Transcript] = {}
         self.agent_hist: dict[str, list[float]] | None = None
         self.helpers: dict[Path, Transcript] = {}  # sub-agent transcripts, read for their tokens
@@ -578,6 +649,94 @@ class Board:
             row["eta"] = row["progress"]["text"]
             row["box_full"] = statistics.median(fulls) if fulls else None
         return rows
+
+    def rollout(self, path: Path) -> dict:
+        """One Codex rollout, re-read only when it changed."""
+        st = path.stat()
+        key = (st.st_mtime_ns, st.st_size)
+        if self.rollouts.get(path, (None,))[0] != key:
+            self.rollouts[path] = (key, codex_rollout(path))
+        return self.rollouts[path][1]
+
+    def codex_rows(self, now: float) -> list[dict]:
+        """Live Codex sessions as page rows: its own threads, not the sub-threads (reviews, helpers) they start."""
+        if not self.codex_dir or not (self.codex_dir / "sessions").is_dir():
+            return []
+        held, roster, names, rows = codex_open_files(), self.roster(), {}, []
+        try:
+            for line in (self.codex_dir / "session_index.jsonl").read_text(encoding="utf-8").splitlines():
+                entry = json.loads(line)
+                names[entry.get("id")] = str(entry.get("thread_name") or "")
+        except (OSError, ValueError, AttributeError):
+            pass
+        sessions = (self.codex_dir / "sessions").resolve()
+        if held is None:
+            paths = [p for p in sessions.glob("*/*/*/*.jsonl") if now - p.stat().st_mtime < CODEX_RECENT]
+        else:
+            paths = [p for p in held if p.is_relative_to(sessions)]
+        for path in sorted(paths):
+            try:
+                ro = self.rollout(path)
+            except OSError:
+                continue
+            meta = ro["meta"]
+            if not meta.get("id") or meta.get("parent_thread_id"):
+                continue
+            sid = str(meta["id"])
+            name, role = Path(str(meta.get("cwd") or "codex")).name, ""
+            for prefix in sorted(roster, key=len, reverse=True):
+                if sid.startswith(prefix):
+                    name, role = roster[prefix]
+                    break
+            started = parse_ts(meta.get("timestamp")) or path.stat().st_mtime
+            last = ro["said_ts"] or path.stat().st_mtime
+            info = ro["info"] or {}
+            used = int((info.get("last_token_usage") or {}).get("input_tokens") or 0)
+            full = int(info.get("model_context_window") or 0) or DEFAULT_CONTEXT
+            title = names.get(sid) or clip(ro["asked"], 80)
+            rows.append({
+                "bot": "codex", "name": name, "role": role, "sid": sid[:8],
+                "state": "RUNNING" if ro["running"] else "IDLE",
+                "eta": "working" if ro["running"] else "ready",
+                "progress": {"text": "", "left": None, "at": None, "pct": None, "behind": False},
+                "started": started, "uptime": fmt_dur(now - started), "title": title, "topic": title, "next": "",
+                "started_as": names.get(sid, ""), "plan_title": "", "ask": "", "waits_on": "", "for_you": "",
+                "warn": ["context near full"] if used >= 0.9 * full else [], "reply": ro["said"][-1500:],
+                "summary_age": "", "tokens": {"today": 0, "cache": 0, "helpers": 0}, "now": clip(ro["said"], 200),
+                "ago": fmt_dur(now - last), "waited": now - last, "summary": ro["asked"],
+                "branch": str((meta.get("git") or {}).get("branch") or ""), "prs": [], "prs_today": [], "plan": None,
+                "finished": 0, "meters": {"working": None, "shipped": 0, "pace": None}, "timeline": "-" * HOUR,
+                "context": {"used": used, "full": full, "pct": min(round(100 * used / full), 100), "basis": "own",
+                            "compactions": 0},
+                "jobs": []})
+        return rows
+
+    def bots(self, rows: list[dict], now: float) -> dict:
+        """Per-bot numbers for the page's top strip: live sessions, and each bot's usage limits where a file has them."""
+        claude: dict = {"sessions": sum(r.get("bot") == "claude" for r in rows), "limits": [], "age": None}
+        try:
+            data = json.loads(self.limits_file.read_text(encoding="utf-8"))
+            claude["age"] = now - self.limits_file.stat().st_mtime
+        except (AttributeError, OSError, ValueError):  # no file named, none written yet, or half-written
+            data = {}
+        for key, label in CLAUDE_WINDOWS:
+            w = data.get(key) if isinstance(data, dict) else None
+            if isinstance(w, dict) and w.get("used_percentage") is not None:
+                resets = w.get("resets_at")
+                claude["limits"].append({"name": label, "used": round(float(w["used_percentage"])),
+                                         "resets": int(resets if isinstance(resets, (int, float)) else parse_ts(resets) or 0) or None})
+        codex: dict = {"sessions": sum(r.get("bot") == "codex" for r in rows), "limits": [], "plan": "", "age": None}
+        days = sorted((self.codex_dir / "sessions").glob("*/*/*")) if self.codex_dir else []
+        newest = max(days[-1].glob("*.jsonl"), key=lambda p: p.stat().st_mtime, default=None) if days else None
+        if newest:
+            try:
+                ro = self.rollout(newest)
+            except OSError:
+                ro = {"limits": None}
+            if ro["limits"]:
+                codex.update(limits=codex_limits(ro["limits"]), plan=str(ro["limits"].get("plan_type") or ""),
+                             age=now - ro["limits_ts"] if ro["limits_ts"] else None)
+        return {"claude": claude, "codex": codex}
 
     def tokens(self, tr: Transcript, now: float) -> dict:
         """Tokens the session spent today (input, cache writes, output; cache reads apart), helpers included."""
@@ -954,7 +1113,7 @@ def row_json(row: dict, now: float) -> dict:
     midnight = datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
     plan = row.get("plan")
     return {
-        "name": row["name"], "role": row["role"], "sid": row["sid"], "state": status_of(row)[0],
+        "bot": "claude", "name": row["name"], "role": row["role"], "sid": row["sid"], "state": status_of(row)[0],
         "eta": row["eta"], "progress": row["progress"], "started": now - row["uptime"],
         "uptime": fmt_dur(row["uptime"]),
         "title": row_topic(row), "topic": row_topic(row), "next": next_step(tr.summary),
@@ -1161,7 +1320,7 @@ def make_server(board: Board, port: int, log: Path | None = None, alerts_log: Pa
             if self.path.split("?")[0] == "/api":
                 with lock:  # transcripts are read incrementally; one reader at a time
                     now = time.time()
-                    rows = finish_order([row_json(r, now) for r in board.snapshot(now)])
+                    rows = finish_order([row_json(r, now) for r in board.snapshot(now)] + board.codex_rows(now))
                     waits.update(rows, now)
                     stats = waits.stats(now)
                     alerts.update(rows, now)
@@ -1170,7 +1329,7 @@ def make_server(board: Board, port: int, log: Path | None = None, alerts_log: Pa
                 level, why = defcon(rows)
                 body = json.dumps({"api": API_VERSION, "now": now, "load": load, "cores": os.cpu_count(), "defcon": {"level": level, "why": why},
                                    "waits": stats, "alerts": day, "untested": untested_versions(board.versions),
-                                   "sessions": rows}).encode()
+                                   "bots": board.bots(rows, now), "sessions": rows}).encode()
                 ctype = "application/json"
             elif self.path.split("?")[0] in ("/", "/index.html"):
                 body, ctype = page.read_bytes(), "text/html; charset=utf-8"
@@ -1264,6 +1423,23 @@ def demo_box(root: Path) -> Path:
                "startedAt": int((now - 3600 * hours) * 1000), **({"procStart": start} if start else {}), **extra}
         (claude / "sessions" / f"demo-{i}.json").write_text(json.dumps(reg))
         (proj / f"{sid}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in recs))
+    codex, cid = root / "codex", "0c0dec00-0000-7000-8000-00000000demo"
+    day = codex / "sessions" / time.strftime("%Y/%m/%d", time.localtime(now))
+    day.mkdir(parents=True)
+    week = {"used_percent": 37.0, "window_minutes": 10080, "resets_at": int(now) + 3 * 86400}
+    (day / f"rollout-demo-{cid}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in [
+        {"timestamp": iso(now - 2400), "type": "session_meta", "payload": {"id": cid, "cwd": str(root / "parser")}},
+        {"timestamp": iso(now - 2390), "type": "event_msg", "payload": {"type": "user_message", "message": "Split the parser into two passes"}},
+        {"timestamp": iso(now - 2380), "type": "event_msg", "payload": {"type": "task_started"}},
+        {"timestamp": iso(now - 45), "type": "event_msg", "payload": {"type": "agent_message", "message": "Moving the tokenizer into its own pass."}},
+        {"timestamp": iso(now - 40), "type": "event_msg", "payload": {"type": "token_count", "info": {
+            "last_token_usage": {"input_tokens": 88_000}, "model_context_window": 258_400},
+            "rate_limits": {"primary": week, "secondary": None, "plan_type": "demo"}}}]))
+    (codex / "session_index.jsonl").write_text(json.dumps({"id": cid, "thread_name": "Split the parser"}) + "\n")
+    (root / "state").mkdir()
+    (root / "state" / "claude-limits.json").write_text(json.dumps({
+        "five_hour": {"used_percentage": 64, "resets_at": int(now) + 5400},
+        "seven_day": {"used_percentage": 41, "resets_at": int(now) + 4 * 86400}}))
     return claude
 
 
@@ -1318,6 +1494,7 @@ def configure(path: Path | None) -> dict:
     state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "bot-battle-station"
     return {"roster": base / cfg["roster"] if cfg.get("roster") else None,
             "state_dir": base / cfg["state_dir"] if cfg.get("state_dir") else state,
+            "claude_limits": base / Path(cfg["claude_limits"]).expanduser() if cfg.get("claude_limits") else None,
             "plan_dirs": list(PLAN_DIRS)}
 
 
@@ -1329,6 +1506,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--interval", type=float, default=2.0, help="data refresh seconds (default 2)")
     ap.add_argument("--claude-dir", type=Path, default=default_claude_dir(),
                     help="Claude Code's config dir (default: $CLAUDE_CONFIG_DIR, else $HOME/.claude)")
+    ap.add_argument("--codex-dir", type=Path, default=Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex"),
+                    help="Codex's home dir, read for its sessions and limits (default: $CODEX_HOME, else $HOME/.codex)")
     ap.add_argument("--config", type=Path, default=Path(__file__).resolve().with_name("session-board.toml"),
                     help="TOML config: this box's asks, watchers, plans, roster, state dir (default: beside this file)")
     ap.add_argument("--roster", type=Path, default=None)
@@ -1344,15 +1523,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.demo:
         import tempfile
-        global proc_children, loadavg
+        global proc_children, loadavg, codex_open_files
         root = Path(tempfile.mkdtemp(prefix="board-demo-"))
-        cfg, args.claude_dir = configure(None), demo_box(root)
+        cfg, args.claude_dir, args.codex_dir = configure(None), demo_box(root), root / "codex"
         cfg["state_dir"], cfg["roster"] = root / "state", None
+        codex_open_files = lambda: None  # noqa: E731 - no process holds the demo's rollout; its age says live
         proc_children = lambda: None  # noqa: E731 - the demo's jobs have no processes; trust the transcript
         loadavg = lambda: DEMO_LOAD  # noqa: E731 - a screenshot shows a made-up load, not this box's
     else:
         cfg = configure(args.config)
-    board = Board(args.claude_dir, args.roster or cfg["roster"])
+    board = Board(args.claude_dir, args.roster or cfg["roster"], args.codex_dir,
+                  cfg["claude_limits"] or cfg["state_dir"] / "claude-limits.json")
     args.waits_log = args.waits_log or cfg["state_dir"] / "waits.jsonl"
     args.alerts_log = args.alerts_log or cfg["state_dir"] / "alerts.jsonl"
     if args.once or (args.tui and not sys.stdout.isatty()):

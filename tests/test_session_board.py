@@ -234,6 +234,7 @@ def box_config():
 def no_process_table(monkeypatch):
     """Tests run inside pytest, whose children are not the jobs: /proc says nothing here."""
     monkeypatch.setattr(sb, "proc_children", lambda: None)
+    monkeypatch.setattr(sb, "codex_open_files", lambda: None)  # nor which rollouts a Codex process holds
 
 
 def test_behind_only_past_the_80th_percentile_of_four_runs():
@@ -867,3 +868,118 @@ def test_a_config_beside_the_script_is_the_default_and_loads():
     conf = BIN / "session-board.toml"
     cfg, have = sb.configure(conf), conf.is_file()
     assert (sb.CMD_RE is not sb.NEVER, bool(cfg["roster"]), bool(sb.WATCH_COMMANDS)) == (have, have, have)
+
+
+CODEX_OPEN_FILES = sb.codex_open_files  # the autouse fixture stubs it; the held-open test needs the real one
+CODEX_ID = "0c0dec00-aaaa-7bbb-8ccc-ddddeeee0001"
+
+
+def codex_rec(t: float, kind: str, **payload) -> dict:
+    top = "session_meta" if kind == "session_meta" else "event_msg"
+    return {"timestamp": iso(t), "type": top, "payload": payload if top == "session_meta" else {"type": kind, **payload}}
+
+
+def codex_limits(used: float, resets: int) -> dict:
+    return {"limit_id": "codex", "primary": {"used_percent": used, "window_minutes": 10080, "resets_at": resets},
+            "secondary": {"used_percent": 12.0, "window_minutes": 300, "resets_at": resets - 3600},
+            "plan_type": "demo"}
+
+
+def make_codex(tmp_path: Path, now: float, sid: str = CODEX_ID, parent: str | None = None,
+               last: str = "task_started", name: str = "rollout") -> Path:
+    codex = tmp_path / "codex"
+    day = codex / "sessions" / "2026" / "10" / "20"
+    day.mkdir(parents=True, exist_ok=True)
+    recs = [codex_rec(now - 600, "session_meta", id=sid, cwd="/srv/project-9", originator="codex_cli",
+                      cli_version="0.1.0", parent_thread_id=parent),
+            codex_rec(now - 590, "user_message", message="tidy the parser"),
+            codex_rec(now - 580, "task_started"),
+            codex_rec(now - 60, "agent_message", message="Splitting the parser into two passes."),
+            codex_rec(now - 50, "token_count", info={"last_token_usage": {"input_tokens": 129200},
+                                                     "model_context_window": 258400},
+                      rate_limits=codex_limits(59.0, int(now) + 86400))]
+    if last == "task_complete":
+        recs.append(codex_rec(now - 40, "task_complete"))
+    path = day / f"{name}-{sid}.jsonl"
+    path.write_text("".join(json.dumps(r) + "\n" for r in recs))
+    with (codex / "session_index.jsonl").open("a") as fh:
+        fh.write(json.dumps({"id": sid, "thread_name": "Tidy the parser"}) + "\n")
+    return codex
+
+
+def test_codex_session_its_process_holds_open_is_a_row_with_its_bot(tmp_path, monkeypatch):
+    """A Codex session is live while a process holds its rollout open; a sub-thread or a closed file is not a row."""
+    now = time.time()
+    codex = make_codex(tmp_path, now)
+    make_codex(tmp_path, now, sid="0c0dec00-aaaa-7bbb-8ccc-ddddeeee0002", parent=CODEX_ID, name="guard")
+    make_codex(tmp_path, now, sid="0c0dec00-aaaa-7bbb-8ccc-ddddeeee0003", name="closed")
+    monkeypatch.setattr(sb, "codex_open_files", CODEX_OPEN_FILES)
+    monkeypatch.setattr(sb, "CODEX_PROC_RE", __import__("re").compile(rb"."))  # this test's process holds them
+    held = [open(p) for p in sorted(codex.glob("sessions/*/*/*/*.jsonl")) if "closed" not in p.name]
+    try:
+        [row] = sb.Board(tmp_path / "claude", None, codex_dir=codex).codex_rows(now)
+    finally:
+        for fh in held:
+            fh.close()
+    assert (row["bot"], row["sid"], row["state"], row["title"]) == ("codex", "0c0dec00", "RUNNING", "Tidy the parser")
+    assert row["name"] == "project-9" and row["now"] == "Splitting the parser into two passes."
+    assert row["context"]["pct"] == 50 and row["jobs"] == [] and row["warn"] == []
+
+
+def test_codex_without_a_process_table_counts_recent_rollouts_and_reads_idle(tmp_path, monkeypatch):
+    now = time.time()
+    codex = make_codex(tmp_path, now, last="task_complete")
+    [row] = sb.Board(tmp_path / "claude", None, codex_dir=codex).codex_rows(now)
+    assert row["state"] == "IDLE"
+    old = next(codex.glob("sessions/*/*/*/*.jsonl"))
+    os.utime(old, (now - 3600, now - 3600))
+    assert sb.Board(tmp_path / "claude", None, codex_dir=codex).codex_rows(now) == []
+
+
+def test_bot_stats_count_each_bot_and_read_both_limits(tmp_path, monkeypatch):
+    """Codex limits come from its newest rollout; Claude's from the file a status line writes, else none."""
+    now = time.time()
+    claude, _ = make_box(tmp_path, [])
+    codex = make_codex(tmp_path, now)
+    limits = tmp_path / "claude-limits.json"
+    board = sb.Board(claude, None, codex_dir=codex, limits_file=limits)
+    stats = board.bots(board.codex_rows(now) + [{"bot": "claude"}], now)
+    assert stats["claude"] == {"sessions": 1, "limits": [], "age": None}
+    assert stats["codex"]["sessions"] == 1 and stats["codex"]["plan"] == "demo"
+    assert stats["codex"]["limits"] == [{"name": "weekly", "used": 59, "resets": int(now) + 86400},
+                                        {"name": "5h", "used": 12, "resets": int(now) + 82800}]
+    limits.write_text(json.dumps({"five_hour": {"used_percentage": 41.6, "resets_at": int(now) + 900},
+                                  "seven_day": {"used_percentage": 73.2, "resets_at": int(now) + 7200}}))
+    stats = board.bots([], now)
+    assert stats["claude"]["limits"] == [{"name": "5h", "used": 42, "resets": int(now) + 900},
+                                         {"name": "weekly", "used": 73, "resets": int(now) + 7200}]
+    assert stats["claude"]["age"] is not None and stats["claude"]["sessions"] == 0
+
+
+def test_api_tags_every_session_with_its_bot_and_carries_bot_stats(tmp_path, monkeypatch):
+    import threading
+    import urllib.request
+    now = time.time()
+    claude, _ = make_box(tmp_path, [])
+    codex = make_codex(tmp_path, now)
+    server = sb.make_server(sb.Board(claude, None, codex_dir=codex), 0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        data = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/api").read())
+    finally:
+        server.shutdown()
+    assert sorted(s["bot"] for s in data["sessions"]) == ["claude", "codex"]
+    assert data["bots"]["claude"]["sessions"] == 1 and data["bots"]["codex"]["sessions"] == 1
+    page = (BIN / "session-board.html").read_text()
+    assert 'id="bots"' in page and "s.bot" in page
+
+
+def test_demo_has_a_codex_session_and_limits_for_both_bots(tmp_path, monkeypatch):
+    sb.configure(None)
+    claude = sb.demo_box(tmp_path)
+    now = time.time()
+    board = sb.Board(claude, None, codex_dir=tmp_path / "codex", limits_file=tmp_path / "state" / "claude-limits.json")
+    rows = board.codex_rows(now)
+    stats = board.bots(rows, now)
+    assert [r["bot"] for r in rows] == ["codex"] and stats["codex"]["limits"] and stats["claude"]["limits"]
+    assert str(Path.home()) not in json.dumps([rows, stats])

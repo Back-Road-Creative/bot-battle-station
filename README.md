@@ -192,7 +192,8 @@ script, run the same command with `-Uninstall` in place of `-Install`.
 - **Transcript text is untrusted.** The page writes every value with `textContent` and makes no
   outside requests.
 - **Logs stay local**: one JSON line per NEEDS YOU spell and per warning, in `state_dir`.
-  Wait history keeps at most the first 240 characters of each ask. Those
+  Each saved line is capped at 8 KiB; an oversized record is omitted from disk without stopping
+  the live board. Wait history keeps at most the first 240 characters of each ask. Those
   characters may still be sensitive; keep the state directory private.
   The daily history section below the tiles groups answered asks by source:
   `prompt` is a session-reported waiting prompt, `command` matches your configured

@@ -85,3 +85,55 @@ def test_demo_removes_its_temporary_files_after_once(monkeypatch, capsys):
     capsys.readouterr()
     assert created
     assert all(not path.exists() for path in created)
+
+
+def test_jsonl_append_is_one_bounded_utf8_write(tmp_path, monkeypatch):
+    path = tmp_path / "state" / "history.jsonl"
+    writes = []
+    real_write = os.write
+
+    def record(fd, data):
+        writes.append(data)
+        return real_write(fd, data)
+
+    monkeypatch.setattr(board.os, "write", record)
+    record_at_limit = {"text": "é" * 20}
+    line = (json.dumps(record_at_limit, ensure_ascii=False) + "\n").encode("utf-8")
+    assert board.append_jsonl(path, record_at_limit, max_bytes=len(line)) is True
+    assert writes == [line]
+    assert path.read_bytes() == line
+    assert board.append_jsonl(path, {"text": "é" * 21}, max_bytes=len(line)) is False
+    assert writes == [line]
+    assert path.read_bytes() == line
+
+    def short_write(fd, data):
+        real_write(fd, data[:3])
+        return 3
+
+    monkeypatch.setattr(board.os, "write", short_write)
+    assert board.append_jsonl(path, {"text": "next"}) is False
+    assert path.read_bytes() == line, "a short write must not leave a partial JSONL line"
+
+
+def test_wait_and_alert_history_use_the_bounded_appender(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(board, "append_jsonl", lambda path, rec: calls.append((path.name, rec)))
+    waits = board.WaitLog(tmp_path / "waits.jsonl")
+    waits.update([{"sid": "a", "name": "A", "ask": "Approve", "ask_kind": "prompt",
+                   "state": "NEEDS YOU", "waited": 0}], 100)
+    waits.update([], 101)
+    alerts = board.AlertLog(tmp_path / "alerts.jsonl")
+    alerts.update([{"sid": "a", "name": "A", "state": "RUNNING", "warn": ["job behind schedule"],
+                    "jobs": [{"late": True, "stalled": False, "label": "job"}]}], 100)
+    alerts.update([], 101)
+    assert [name for name, _ in calls] == ["waits.jsonl", "alerts.jsonl"]
+
+
+def test_oversized_warning_is_not_persisted_as_a_partial_line(tmp_path):
+    path = tmp_path / "alerts.jsonl"
+    alerts = board.AlertLog(path)
+    alerts.update([{"sid": "a", "name": "A", "state": "RUNNING", "warn": ["job behind schedule"],
+                    "jobs": [{"late": True, "stalled": False, "label": "x" * board.LOG_LINE_MAX_BYTES}]}], 100)
+    alerts.update([], 101)
+    assert len(alerts.done) == 1, "the current board can still count the warning"
+    assert not path.exists(), "an oversized history line is discarded before the file is touched"

@@ -46,8 +46,8 @@ Under WSL, a Windows browser opens it at `http://localhost:8765`.
 ## Verify a release download
 
 Download `session-board.py`, `session-board.html`, `session-board-kiosk.ps1`,
-and `SHA256SUMS` from the same GitHub release into one directory. From that
-directory, verify every file before running the board:
+`demo.png`, and `SHA256SUMS` from the same GitHub release into one directory.
+From that directory, verify every file before running the board:
 
 ```bash
 sha256sum -c SHA256SUMS

@@ -52,7 +52,9 @@ bars against their usual length, four dials (share of the last hour spent workin
 linked, pace against its own usual, tokens today), an hour strip and a context gauge. Click a
 tile or press 1-9 for the full view; `?` opens a legend that says how every number is computed.
 Keyboard users can Tab to tiles and requests, press Enter or Space to open them, and use the
-Close button or Esc to return to the tile. Focus stays on the control during refreshes.
+Close button or Esc to return to the tile. Refreshes keep each visible session's tile and Close
+control in place, even when the tile moves or its details change. If a focused session disappears,
+focus moves to another tile, or to Help when the board is empty.
 Tiles reflow on narrow screens, and the board respects the system's reduced-motion setting.
 
 The header's **sessions** total includes both Claude Code and Codex tiles; **codex** shows its

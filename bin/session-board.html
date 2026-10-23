@@ -336,6 +336,8 @@ main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 
 <script>
 const seen = new Map();   // sid -> {state, jobs, pct}: what the last poll showed, for motion cues
 let data = null, at = 0, focusSid = location.hash.slice(1) || null, first = true;   // #<sid> opens that session
+const gridTiles = new Map();   // sid -> {node, signature}: keep tile identity through each poll
+let focusRenderedSid = null, focusSignature = null;
 const POLL_INTERVAL_MS = 2000;   // replaced by the loopback server for --interval
 
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -429,13 +431,7 @@ function foot(s) {
 }
 
 function tile(s, big) {
-  const was = seen.get(s.sid);
-  let motion = "";
-  if (!big && !first && !was) motion = " enter";
-  else if (!big && was && was.state !== s.state) motion = " changed";
-  else if (!big && was && s.jobs.length < was.jobs) motion = " flash";
-  const warn = s.warn.length && s.state !== "NEEDS YOU";
-  const t = el("div", "tile " + cls(s) + motion + (warn ? " warn" : ""));
+  const t = el("div", tileClass(s, big));
   t.dataset.sid = s.sid;
   const top = el("div", "top");
   top.append(el("span", "bot " + s.bot, s.bot === "codex" ? "CODEX" : "CLAUDE"), el("span", "name", s.name),
@@ -446,6 +442,7 @@ function tile(s, big) {
     ? `waits on: ${s.waits_on}` : s.for_you && s.state === "IDLE" ? `for you: ${s.for_you}`
     : `now: ${s.now || "—"}` + (s.ago ? ` · ${s.ago} ago` : "")), dials(s));
   const mid = el("div", "mid"); mid.append(ring(s), what);
+  const warn = s.warn.length && s.state !== "NEEDS YOU";
   t.append(top, ...(warn ? [el("div", "warning", "⚠ " + s.warn.join(" · "))] : []), title, mid, steps(s, big ? 99 : 3), foot(s));
   if (big) {
     t.append(el("div", "legend"));
@@ -469,6 +466,16 @@ function tile(s, big) {
   return t;
 }
 
+function tileClass(s, big) {
+  const was = seen.get(s.sid);
+  let motion = "";
+  if (!big && !first && !was) motion = " enter";
+  else if (!big && was && was.state !== s.state) motion = " changed";
+  else if (!big && was && s.jobs.length < was.jobs) motion = " flash";
+  const warn = s.warn.length && s.state !== "NEEDS YOU";
+  return "tile " + cls(s) + motion + (warn ? " warn" : "");
+}
+
 function openFocus(sid) { focusSid = sid; history.replaceState(null, "", "#" + sid); renderFocus(); }
 function closeFocus() {
   const sid = focusSid;
@@ -479,10 +486,26 @@ function closeFocus() {
 }
 function renderFocus() {
   const box = document.getElementById("focus"), s = data && data.sessions.find(x => x.sid === focusSid);
-  if (!s) { box.className = ""; box.replaceChildren(); focusSid = null; if (location.hash) history.replaceState(null, "", location.pathname); return; }
-  const shouldFocusClose = box.className !== "on" || document.activeElement?.className === "close";
-  box.className = "on"; box.replaceChildren(tile(s, true));
-  if (shouldFocusClose) box.querySelector(".close")?.focus({preventScroll: true});
+  if (!s) {
+    const missing = focusSid && document.activeElement?.className === "close";
+    box.className = ""; box.replaceChildren(); focusSid = null; focusRenderedSid = null;
+    if (location.hash) history.replaceState(null, "", location.pathname);
+    if (missing) (document.getElementById("grid").children[0]?.className?.includes("tile")
+      ? document.getElementById("grid").children[0] : document.getElementById("help")).focus({preventScroll: true});
+    return;
+  }
+  const signature = JSON.stringify(s), opened = box.className !== "on" || focusRenderedSid !== s.sid;
+  if (opened) {
+    box.className = "on"; box.replaceChildren(tile(s, true));
+    focusRenderedSid = s.sid; focusSignature = signature;
+    box.querySelector(".close")?.focus({preventScroll: true});
+  } else if (signature !== focusSignature) {
+    const current = box.children[0], next = tile(s, true), close = current.lastChild;
+    current.className = next.className;
+    while (current.firstChild !== close) current.firstChild.remove();
+    current.prepend(...[...next.children].slice(0, -1));
+    focusSignature = signature;
+  }
 }
 
 function header(rows) {
@@ -719,15 +742,40 @@ function bots(b) {   // the top strip: per bot, live sessions and each usage win
   document.getElementById("bots").replaceChildren(...cards);
 }
 
+function renderGrid(rows) {
+  const grid = document.getElementById("grid");
+  const focused = document.activeElement?.className?.split(" ").includes("tile") ? document.activeElement : null;
+  const focusedIndex = focused ? [...grid.children].indexOf(focused) : -1;
+  const keep = new Set();
+  for (let i = 0; i < rows.length; i++) {
+    const s = rows[i], signature = JSON.stringify(s);
+    let entry = gridTiles.get(s.sid);
+    if (!entry) { entry = {node: tile(s, false), signature}; gridTiles.set(s.sid, entry); }
+    else if (entry.signature !== signature) {
+      const next = tile(s, false);
+      entry.node.className = next.className;
+      entry.node.setAttribute("aria-label", `Open ${s.name} session details`);
+      entry.node.replaceChildren(...next.children);
+      entry.signature = signature;
+    } else entry.node.className = tileClass(s, false);
+    keep.add(s.sid);
+    if (grid.children[i] !== entry.node) grid.insertBefore(entry.node, grid.children[i] || null);
+  }
+  for (const [sid, entry] of gridTiles) if (!keep.has(sid)) { entry.node.remove(); gridTiles.delete(sid); }
+  if (!rows.length && !grid.children.length) grid.append(el("div", "empty", "NO OPEN SESSIONS"));
+  if (rows.length && grid.lastChild?.className === "empty") grid.lastChild.remove();
+  if (focused && !keep.has(focused.dataset.sid))
+    (rows.length ? grid.children[Math.min(focusedIndex, rows.length - 1)] : document.getElementById("help"))
+      .focus({preventScroll: true});
+  else if (focused && document.activeElement !== focused) focused.focus({preventScroll: true});
+}
+
 function render() {
   const rows = data.sessions;   // the server lines them up in order of completion
   header(rows); needs(rows); alarm(rows); bots(data.bots);
   document.getElementById("untested").textContent = (data.untested || []).length
     ? `Claude Code ${data.untested.join(", ")} is newer than this board was checked against; if a number looks wrong, run --doctor` : "";
-  const grid = document.getElementById("grid");
-  const activeSid = document.activeElement?.className?.split(" ").includes("tile") ? document.activeElement.dataset.sid : null;
-  grid.replaceChildren(...(rows.length ? rows.map(s => tile(s, false)) : [el("div", "empty", "NO OPEN SESSIONS")]));
-  if (activeSid) [...grid.children].find(t => t.dataset.sid === activeSid)?.focus({preventScroll: true});
+  renderGrid(rows);
   renderFocus();
   seen.clear();
   for (const s of rows) seen.set(s.sid, {state: s.state, jobs: s.jobs.length, pct: s.progress.pct});

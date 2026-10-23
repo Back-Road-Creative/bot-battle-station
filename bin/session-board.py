@@ -38,6 +38,7 @@ its % done. A watcher (the Monitor tool, a `watch_commands` match) has no ETA.
 from __future__ import annotations
 
 import argparse
+from contextlib import suppress
 import fcntl
 import json
 import math
@@ -951,7 +952,7 @@ class Ink:
         return RESET if self.on else ""
 
     def blend(self, a: tuple, b: tuple, t: float) -> str:
-        return rgb(*(round(x + (y - x) * t) for x, y in zip(a, b))) if self.on else ""
+        return rgb(*(round(x + (y - x) * t) for x, y in zip(a, b, strict=False))) if self.on else ""
 
 
 def clip(text: str, width: int) -> str:
@@ -1247,10 +1248,8 @@ class WaitLog:
 
     def __init__(self, path: Path | None):
         self.path, self.open, self.done = path, {}, []
-        try:
+        with suppress(OSError, ValueError, AttributeError):
             self.done = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-        except (OSError, ValueError, AttributeError):
-            pass
 
     def update(self, rows: list[dict], now: float) -> None:
         asking = {r["sid"]: r for r in rows if r["state"] == "NEEDS YOU"}
@@ -1282,10 +1281,8 @@ class AlertLog:
 
     def __init__(self, path: Path | None):
         self.path, self.open, self.done = path, {}, []
-        try:
+        with suppress(OSError, ValueError, AttributeError):
             self.done = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-        except (OSError, ValueError, AttributeError):
-            pass
 
     @staticmethod
     def kinds(row: dict) -> dict[str, list[str]]:
@@ -1583,10 +1580,8 @@ def doctor(claude_dir: Path, codex_dir: Path | None = None, limits_file: Path | 
     logs = [p for s in live for p in claude_dir.glob(f"projects/*/{s.get('sessionId', '')}.jsonl")]
     notices = 0
     for log in logs:
-        try:
+        with suppress(OSError):
             notices += sum(b"<task-id>" in line for line in log.read_bytes().splitlines())
-        except OSError:
-            pass
     out = [f"claude dir: {'found' if claude_dir.is_dir() else 'missing'}", f"registry files: {len(regs)}",
            f"live sessions: {len(live)}", f"transcripts: {len(logs)}",
            f"sub-agent records: {len(list(claude_dir.glob('projects/*/*/subagents/*.meta.json')))}",
@@ -1721,10 +1716,8 @@ def run_board(args: argparse.Namespace, cfg: dict) -> int:
     if not args.tui:
         server = make_server(board, args.port, args.waits_log, args.alerts_log, args.interval)
         print(f"session board: http://localhost:{server.server_address[1]}/  (Ctrl+C stops)", flush=True)
-        try:
+        with suppress(KeyboardInterrupt):
             server.serve_forever()
-        except KeyboardInterrupt:
-            pass
         return 0
     import termios
     import tty

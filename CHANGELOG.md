@@ -24,6 +24,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   clearer muted text and stale-state styling.
 - Let keyboard users open tiles and requests and keep focus during refreshes;
   keep long requests inside the phone-width alert banner.
+- Clarify benign exception handling and tuple pairing in the board internals.
 
 ### Fixed
 

@@ -76,11 +76,19 @@ header {
 #alert .big { font: clamp(64px, 13vw, 220px)/.9 var(--stencil); letter-spacing: .04em; color: #fff; text-align: center;
   text-shadow: 0 0 30px var(--red), 0 0 80px var(--red); animation: blink 1s steps(1) infinite; }
 #alert .who { display: grid; gap: 10px; width: min(1400px, 92vw); }
-#alert .who div { padding: 12px 20px; border: 3px solid var(--red); background: rgba(255, 42, 60, .28); font: 600 clamp(20px, 2.4vw, 38px) var(--sans); color: #fff; cursor: pointer;
+#alert .alert-entry { display: flex; gap: 10px; min-width: 0; }
+#alert .who .alert-request { flex: 1; min-width: 0; padding: 12px 20px; border: 3px solid var(--red); background: rgba(255, 42, 60, .28); font: 600 clamp(20px, 2.4vw, 38px) var(--sans); color: #fff; cursor: pointer;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #alert .who b { font-family: var(--mono); margin-right: 16px; color: #ffd6db; }
 #alert .hint { color: #ffd6db; font-size: 14px; padding: 0; }
 #alert button { font: clamp(20px, 2.2vw, 32px) var(--stencil); letter-spacing: .2em; padding: 14px 40px; cursor: pointer; color: var(--red); background: #fff; border: 0; }
+#alert button.snooze { flex: none; font: 700 14px var(--mono); letter-spacing: .04em; padding: 10px 16px; }
+@media (max-width: 600px) {
+  #alert .alert-entry { flex-direction: column; }
+  #alert .who .alert-request { white-space: normal; overflow-wrap: anywhere; }
+  #alert .who b { display: block; }
+  #alert button.snooze { align-self: flex-end; }
+}
 @keyframes blink { 50% { color: var(--red); text-shadow: none; } }
 @media (prefers-reduced-motion: reduce) { #alert .big, .radar, .defcon i { animation: none; } }
 @media (prefers-reduced-motion: reduce) {
@@ -133,6 +141,10 @@ header {
 #needs .lbl { font: 700 15px var(--mono); letter-spacing: .18em; color: #fff; text-shadow: 0 0 12px var(--red); }
 .ask { display: flex; gap: 8px; align-items: baseline; min-width: 0; max-width: 520px; padding: 7px 12px; cursor: pointer;
   background: rgba(255, 40, 60, .22); border: 1px solid var(--red); border-radius: 4px; }
+.ask-entry { display: flex; min-width: 0; gap: 4px; }
+.snooze { flex: none; padding: 6px 10px; border: 1px solid var(--red); border-radius: 4px; background: #27080e;
+  color: #ffd6db; font: 700 11px var(--mono); cursor: pointer; }
+.snooze:focus-visible { outline: 3px solid var(--mint); outline-offset: 3px; }
 .ask:hover { background: rgba(255, 40, 60, .38); }
 .ask:focus-visible, #alert .who [role="button"]:focus-visible, .close:focus-visible {
   outline: 3px solid var(--mint); outline-offset: 3px;
@@ -536,16 +548,18 @@ function dayStats() {   // the day's warning stats, from alerts.jsonl and waits.
 
 function needs(rows) {
   const box = document.getElementById("needs"), waiting = rows.filter(s => s.state === "NEEDS YOU");
-  const activeSid = document.activeElement?.className === "ask" ? document.activeElement.dataset.sid : null;
+  const active = document.activeElement, activeSid = ["ask", "snooze"].includes(active?.className) ? active.dataset.sid : null;
   document.title = waiting.length ? `⚠ (${waiting.length}) needs you · Battle Station` : "Battle Station";   // shows in the tab
   if (!waiting.length) { box.replaceChildren(); return; }
   box.replaceChildren(el("span", "lbl", `⚠ ${waiting.length} WAITING ON YOU ▸`), ...waiting.map(s => {
     const a = action(el("div", "ask"), `Open ${s.name} request`, () => openFocus(s.sid));
     a.dataset.sid = s.sid;
     a.append(el("b", null, s.name), el("span", null, s.ask || s.topic || ""), el("em", null, s.waited != null ? `waiting ${dur(s.waited)}` : ""));
-    a.title = s.ask || ""; return a;
+    a.title = s.ask || "";
+    const entry = el("div", "ask-entry"); entry.append(a, snoozeButton(s)); return entry;
   }));
-  if (activeSid) [...box.children].find(a => a.dataset.sid === activeSid)?.focus({preventScroll: true});
+  if (activeSid) [...box.children].flatMap(entry => entry.children || [])
+    .find(e => e.dataset.sid === activeSid && e.className === active.className)?.focus({preventScroll: true});
 }
 
 // The alarm. Off-screen sound needs a click first (browser rule), so the siren is opt-in and remembered.
@@ -553,6 +567,44 @@ function needs(rows) {
 const store = {get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
                set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* private window */ } }};
 let audio = null, acked = new Set(), shown = new Set(), lastSiren = 0, level = 5, armed = store.get("siren") === "on";
+const SNOOZE_MS = 15 * 60 * 1000;
+function loadSnoozes() {
+  try {
+    const value = JSON.parse(store.get("sessionSnoozes") || "{}");
+    if (!value || typeof value !== "object" || Array.isArray(value)) return new Map();
+    return new Map(Object.entries(value || {}).filter(([sid, until]) =>
+      typeof sid === "string" && typeof until === "number" && Number.isFinite(until)));
+  } catch (e) { return new Map(); }
+}
+const snoozes = loadSnoozes();
+let announced = new Set();
+function saveSnoozes() { store.set("sessionSnoozes", JSON.stringify(Object.fromEntries(snoozes))); }
+function isSnoozed(sid) { return (snoozes.get(sid) || 0) > Date.now(); }
+function snoozeButton(s) {
+  const muted = isSnoozed(s.sid), remaining = Math.ceil(((snoozes.get(s.sid) || 0) - Date.now()) / 60000);
+  const button = el("button", "snooze", muted ? `UNSNOOZE (${remaining}m)` : "SNOOZE 15m");
+  button.dataset.sid = s.sid;
+  button.setAttribute("aria-label", `${muted ? "Unsnooze" : "Snooze for 15 minutes"} ${s.name}`);
+  button.onclick = e => { e.stopPropagation(); snooze(s.sid); };
+  return button;
+}
+function snooze(sid) {
+  const focusedButton = document.activeElement?.className === "snooze" && document.activeElement.dataset.sid === sid;
+  if (isSnoozed(sid)) snoozes.delete(sid);
+  else { snoozes.set(sid, Date.now() + SNOOZE_MS); acked.delete(sid); }
+  saveSnoozes();
+  if (data) {
+    needs(data.sessions); alarm(data.sessions);
+    if (focusedButton) {
+      const alert = document.getElementById("alert");
+      const entries = alert.className === "on" ? alert.children[1].children : document.getElementById("needs").children;
+      const controls = [...entries].flatMap(entry => [...(entry.children || [])]);
+      (controls.find(e => e.className === "snooze" && e.dataset.sid === sid)
+        || (alert.className === "on" && controls.find(e => e.className === "alert-request")))
+        ?.focus({preventScroll: true});
+    }
+  }
+}
 const openAcked = new URLSearchParams(location.search).has("ack");   // ?ack: asks already up when the page opens start acknowledged (screenshots, a second screen)
 
 function siren() {   // three rising wails, about 1.5 s, generated here: no sound files
@@ -604,30 +656,41 @@ document.getElementById("arm").onclick = e => {
 };
 document.addEventListener("pointerdown", () => { if (armed && (!audio || audio.state !== "running")) wakeAudio(); });
 
-function acknowledge() { acked = new Set(shown); document.getElementById("alert").className = ""; }
+function acknowledge() {
+  acked = new Set([...acked, ...shown].filter(sid => !isSnoozed(sid)));
+  document.getElementById("alert").className = "";
+}
 
 function alarm(rows) {
   const waiting = rows.filter(s => s.state === "NEEDS YOU"), now = new Set(waiting.map(s => s.sid));
+  let expired = false;
+  for (const [sid, until] of snoozes) if (until <= Date.now()) { snoozes.delete(sid); expired = true; }
+  if (expired) saveSnoozes();
   for (const sid of [...acked]) if (!now.has(sid)) acked.delete(sid);   // it stopped asking: a new ask alarms again
   if (openAcked && first) for (const sid of now) acked.add(sid);
-  const fresh = waiting.filter(s => !shown.has(s.sid));
+  const active = waiting.filter(s => !isSnoozed(s.sid));
+  const fresh = active.filter(s => !announced.has(s.sid) && !acked.has(s.sid));
+  announced = new Set(active.map(s => s.sid));
   shown = now;
   ladder(data.defcon.level, data.defcon.why);
-  const box = document.getElementById("alert"), loud = waiting.some(s => !acked.has(s.sid));
-  const activeSid = document.activeElement?.className === "alert-request" ? document.activeElement.dataset.sid : null;
+  const box = document.getElementById("alert"), loud = active.some(s => !acked.has(s.sid));
+  const focused = document.activeElement;
+  const activeSid = ["alert-request", "snooze"].includes(focused?.className) ? focused.dataset.sid : null;
   const activeAck = document.activeElement?.textContent === "ACKNOWLEDGE";
   if (!loud) { box.className = ""; box.replaceChildren(); return; }
   const btn = el("button", null, "ACKNOWLEDGE"); btn.onclick = acknowledge;
-  box.replaceChildren(el("div", "big", `⚠ ${waiting.length} NEED${waiting.length === 1 ? "S" : ""} YOU`),
+  box.replaceChildren(el("div", "big", `⚠ ${active.length} NEED${active.length === 1 ? "S" : ""} YOU`),
     el("div", "who"), btn, el("div", "hint", "Esc or ACKNOWLEDGE silences this until another session needs you"));
-  box.children[1].append(...waiting.map(s => {
+  box.children[1].append(...active.map(s => {
     const r = action(el("div", "alert-request"), `Open ${s.name} request`, () => { acknowledge(); openFocus(s.sid); });
     r.dataset.sid = s.sid;
     r.append(el("b", null, s.name), document.createTextNode(s.ask || s.topic || ""));
-    r.title = s.ask || ""; return r;
+    r.title = s.ask || "";
+    const entry = el("div", "alert-entry"); entry.append(r, snoozeButton(s)); return entry;
   }));
   box.className = "on";
-  if (activeSid) [...box.children[1].children].find(r => r.dataset.sid === activeSid)?.focus({preventScroll: true});
+  if (activeSid) [...box.children[1].children].flatMap(entry => entry.children)
+    .find(e => e.dataset.sid === activeSid && e.className === focused.className)?.focus({preventScroll: true});
   else if (activeAck) btn.focus({preventScroll: true});
   if (fresh.length) {
     if ("Notification" in window && Notification.permission === "granted")

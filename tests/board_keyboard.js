@@ -55,13 +55,13 @@ tile.onkeydown({key: "Enter", preventDefault() { prevented = true; }, stopPropag
 assert(prevented);
 assert.equal(page.focusSid, s.sid);
 page.needs([s]);
-const ask = els.get("needs").children[1];
+const ask = els.get("needs").children[1].children[0];
 assert.equal(ask.attrs.role, "button");
 assert.equal(ask.tabIndex, 0);
 assert.equal(typeof ask.onkeydown, "function");
 ask.focus();
 page.needs([s]);
-assert.equal(document.activeElement, els.get("needs").children[1], "an ask keeps focus after refresh");
+assert.equal(document.activeElement, els.get("needs").children[1].children[0], "an ask keeps focus after refresh");
 s.state = "IDLE";
 page.setFocus(null);
 page.setData({sessions: [s], waits: {answered: 0}, alerts: null, defcon: {level: 5, why: "quiet"},

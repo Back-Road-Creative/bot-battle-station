@@ -141,16 +141,20 @@ A strip under the header shows, per bot, its live sessions and each usage window
 weekly) with % used and time to reset. Codex writes its limits into its own session files, so
 they appear on their own. Claude Code writes its limits nowhere on disk; it hands them only to
 your status line command, as `rate_limits` on its stdin. To show them, add one line to your
-status line script, which already has that JSON in a variable (`$input` here). It writes only when
-Claude Code sent limits, and swaps the file in whole, so the board never reads a half-written one:
+status line script, which already has that JSON in a variable (`$input` here). Use the full path
+to this checkout's script:
 
 ```bash
-d=~/.local/state/bot-battle-station; l=$(printf '%s' "$input" | jq -c '.rate_limits // empty' 2>/dev/null); [ -n "$l" ] && mkdir -p "$d" && printf '%s\n' "$l" > "$d/claude-limits.json.tmp" && mv "$d/claude-limits.json.tmp" "$d/claude-limits.json"
+printf '%s' "$input" | python3 /path/to/bot-battle-station/bin/session-board.py --write-limits
 ```
 
-Without that file the strip says so. It shows "read … ago" when a file is over an hour old. A
-window is left out when its percentage is not a number or its reset time has passed (the file is
-stale); a percentage outside 0-100 is shown clamped.
+The helper saves only the supported percentage and reset fields in a private file, replacing it
+atomically. It leaves the previous file alone when the status update has no limits; malformed or
+oversized input exits with code 2. Pass `--config /path/to/session-board.toml` if your board uses
+a custom `claude_limits` or `state_dir` path. Without the file the strip says so. It shows
+"read … ago" when a file is over an hour old. A window is left out when its percentage is not
+a number or its reset time has passed (the file is stale); a percentage outside 0-100 is shown
+clamped.
 
 ## A wall screen on Windows
 

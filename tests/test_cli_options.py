@@ -2,7 +2,9 @@
 
 import importlib.util
 import argparse
+import io
 import json
+import stat
 import threading
 import time
 import urllib.request
@@ -78,3 +80,73 @@ def test_doctor_reports_codex_and_limits_sources_without_values(tmp_path, monkey
         assert part in report
     for secret in (str(tmp_path), sid, "72", "private-limits"):
         assert secret not in report
+
+
+def write_from_status_line(monkeypatch, payload: bytes, config: Path) -> int:
+    with monkeypatch.context() as local:
+        local.setattr(board.sys, "stdin", io.TextIOWrapper(io.BytesIO(payload)))
+        return board.main(["--write-limits", "--config", str(config)])
+
+
+def test_write_limits_saves_only_supported_windows_for_the_board(tmp_path, monkeypatch, capsys):
+    target = tmp_path / "private" / "limits.json"
+    config = tmp_path / "board.toml"
+    config.write_text(f'claude_limits = "{target}"\n')
+    resets = int(time.time()) + 3600
+    payload = json.dumps({"cwd": "/secret/project", "secret_token": "do-not-save", "rate_limits": {
+        "five_hour": {"used_percentage": 73, "resets_at": resets, "extra": "do-not-save"},
+        "seven_day": {"used_percentage": 24, "resets_at": resets},
+        "other_window": {"used_percentage": 99}}}).encode()
+    assert write_from_status_line(monkeypatch, payload, config) == 0
+    saved = target.read_text()
+    assert json.loads(saved) == {"five_hour": {"used_percentage": 73, "resets_at": resets},
+                                 "seven_day": {"used_percentage": 24, "resets_at": resets}}
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    assert not list(target.parent.glob("*.tmp"))
+    assert board.Board(tmp_path / "claude", None, limits_file=target).bots([], time.time())["claude"]["limits"] == [
+        {"name": "5h", "used": 73, "resets": resets}, {"name": "weekly", "used": 24, "resets": resets}]
+    assert capsys.readouterr().out == ""
+
+
+def test_write_limits_keeps_previous_file_when_no_limits_arrive(tmp_path, monkeypatch):
+    target = tmp_path / "limits.json"
+    target.write_text('{"five_hour":{"used_percentage":12}}\n')
+    config = tmp_path / "board.toml"
+    config.write_text(f'claude_limits = "{target}"\n')
+    before = target.read_bytes()
+    assert write_from_status_line(monkeypatch, b'{"cwd":"/secret/project"}', config) == 0
+    assert target.read_bytes() == before
+
+
+@pytest.mark.parametrize("payload", [pytest.param(b'not json', id="invalid-json"),
+                                     pytest.param(b'{"rate_limits": []}', id="wrong-shape"),
+                                     pytest.param(b'{"rate_limits":{"five_hour":{"used_percentage":{"secret":"x"}}}}',
+                                                  id="nested-value"),
+                                     pytest.param(b'{"rate_limits":{"five_hour":{"used_percentage":' +
+                                                  b'9' * 1000 + b'}}}', id="huge-number"),
+                                     pytest.param(b'x' * 1_048_577, id="oversize")])
+def test_write_limits_rejects_bad_input_without_replacing_file(tmp_path, monkeypatch, capsys, payload):
+    target = tmp_path / "limits.json"
+    target.write_text('{"five_hour":{"used_percentage":12}}\n')
+    config = tmp_path / "board.toml"
+    config.write_text(f'claude_limits = "{target}"\n')
+    before = target.read_bytes()
+    assert write_from_status_line(monkeypatch, payload, config) == 2
+    assert target.read_bytes() == before
+    error = capsys.readouterr().err
+    assert "limits" in error.lower()
+    assert str(tmp_path) not in error
+
+
+def test_write_limits_replace_failure_keeps_old_file_and_cleans_temp(tmp_path, monkeypatch):
+    target = tmp_path / "limits.json"
+    target.write_text("old\n")
+
+    def fail_replace(*args):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(board.os, "replace", fail_replace)
+    with pytest.raises(OSError):
+        board.write_limits(io.BytesIO(b'{"rate_limits":{"five_hour":{"used_percentage":30}}}'), target)
+    assert target.read_text() == "old\n"
+    assert not list(tmp_path.glob(".claude-limits-*.tmp"))

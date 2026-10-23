@@ -11,6 +11,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Clarify command options, local state paths, board actions, and the loopback
   server's security scope in the documentation.
 
+### Fixed
+
+- Validate kiosk launcher arguments, identify the board before reusing a local
+  server, and provide an uninstall option without disabling execution policy.
+
 ## 0.2.0
 
 ### Added

@@ -14,4 +14,4 @@ on:
 
 jobs:
   leak-scan:
-    uses: Back-Road-Creative/.github/.github/workflows/leak-scan.yml@main
+    uses: Back-Road-Creative/.github/.github/workflows/leak-scan.yml@7fd71700189a491ed7b33298caa436e918aaa5a9

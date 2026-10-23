@@ -22,7 +22,8 @@ def iso(t: float) -> str:
 
 
 def proc_start() -> str:
-    return Path("/proc/self/stat").read_text().rsplit(")", 1)[-1].split()[19]
+    stat = Path("/proc/self/stat")
+    return stat.read_text().rsplit(")", 1)[-1].split()[19] if stat.exists() else "0"
 
 
 def make_box(tmp_path: Path, records: list[dict], status: str = "busy", started: float | None = None):

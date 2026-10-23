@@ -139,6 +139,7 @@ def test_roster_name_wins_and_appended_lines_are_read_incrementally(tmp_path):
     assert row["tr"].title == "second"
 
 
+@pytest.mark.skipif(not (sb.PROC / "self").exists(), reason="PID reuse check needs /proc")
 def test_dead_or_reused_pid_is_not_listed(tmp_path):
     claude, _ = make_box(tmp_path, [])
     reg = claude / "sessions" / f"{os.getpid()}.json"
@@ -908,6 +909,7 @@ def make_codex(tmp_path: Path, now: float, sid: str = CODEX_ID, parent: str | No
     return codex
 
 
+@pytest.mark.skipif(not (sb.PROC / "self").exists(), reason="open-file check needs /proc")
 def test_codex_session_its_process_holds_open_is_a_row_with_its_bot(tmp_path, monkeypatch):
     """A Codex session is live while a process holds its rollout open; a sub-thread or a closed file is not a row."""
     now = time.time()

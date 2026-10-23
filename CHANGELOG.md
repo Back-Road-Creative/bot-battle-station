@@ -13,6 +13,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Bound ask text saved in local wait history to a 240-character preview.
+- Show unknown start times honestly, expand configured home paths, and report
+  malformed TOML without a traceback. Ignore unrelated empty `.git` directories
+  when locating a config checkout. Add a `--version` CLI option.
+- Remove temporary demo session files when the board exits.
 - Validate kiosk launcher arguments, identify the board before reusing a local
   server, and provide an uninstall option without disabling execution policy.
 

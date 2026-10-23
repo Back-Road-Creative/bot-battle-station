@@ -177,6 +177,11 @@ script, run the same command with `-Uninstall` in place of `-Install`.
 - **Logs stay local**: one JSON line per NEEDS YOU spell and per warning, in `state_dir`.
   Wait history keeps at most the first 240 characters of each ask. Those
   characters may still be sensitive; keep the state directory private.
+  The daily history section below the tiles groups answered asks by source:
+  `prompt` is a session-reported waiting prompt, `command` matches your configured
+  command rule, and `unknown` covers older records. Warning endings say whether
+  the condition cleared while the session was visible or the session stopped
+  appearing; disappearance does not prove it completed.
 - **`--doctor`** prints counts, registry key names and Claude Code versions, never a path, name,
   id or text, so its output can go in a bug report.
 

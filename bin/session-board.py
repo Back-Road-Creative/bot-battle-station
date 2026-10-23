@@ -1138,6 +1138,7 @@ def row_json(row: dict, now: float) -> dict:
         "uptime": "unknown" if row.get("started_unknown") else fmt_dur(row["uptime"]),
         "title": row_topic(row), "topic": row_topic(row), "next": next_step(tr.summary),
         "started_as": tr.title, "plan_title": row.get("plan_title", ""), "ask": what if kind == "you" else "",
+        "ask_kind": ("prompt" if row["status"] == "waiting" else "command") if kind == "you" else None,
         "waits_on": what if kind == "session" else "",
         "for_you": what if kind == "next" else "", "warn": warnings(running, round(100 * tr.context / full)),
         "reply": tr.reply[-1500:], "summary_age": fmt_dur(now - tr.summary_ts) if tr.summary_ts else "",
@@ -1220,6 +1221,7 @@ class WaitLog:
         for sid, r in asking.items():
             if sid not in self.open:
                 self.open[sid] = {"sid": sid, "name": r["name"], "ask": str(r["ask"])[:240],
+                                  "ask_kind": r.get("ask_kind") or "unknown",
                                   "start": now - (r["waited"] or 0)}
         for sid in [sid for sid in self.open if sid not in asking]:
             rec = self.open.pop(sid)
@@ -1267,6 +1269,7 @@ class AlertLog:
 
     def update(self, rows: list[dict], now: float) -> None:
         seen = set()
+        visible = {r["sid"] for r in rows}
         for r in rows:
             for kind, detail in self.kinds(r).items():
                 key = (r["sid"], kind)
@@ -1275,7 +1278,8 @@ class AlertLog:
                 rec["detail"] += [d for d in detail if d not in rec["detail"]]
         for key in [k for k in self.open if k not in seen]:
             rec = self.open.pop(key)
-            rec.update(end=now, secs=round(now - rec["start"], 1))
+            rec.update(end=now, secs=round(now - rec["start"], 1),
+                       end_reason="condition_cleared" if rec["sid"] in visible else "session_not_visible")
             self.done.append(rec)
             if self.path:
                 try:
@@ -1312,13 +1316,23 @@ class AlertLog:
             if r["kind"] == "wait on job":
                 job_wait[hour(r["start"])] = job_wait.get(hour(r["start"]), 0) + r["secs"] / 60
         asks: dict[str, list[float]] = {}
+        asks_by_kind: dict[str, list[float]] = {}
         for w in waits:
             if w["end"] >= midnight:
                 asks.setdefault(hour(w["start"]), []).append(w["secs"])
+                asks_by_kind.setdefault(w.get("ask_kind") or "unknown", []).append(w["secs"])
+        endings: dict[str, dict[str, int]] = {}
+        for rec in done:
+            reason = rec.get("end_reason") or "unknown"
+            counts = endings.setdefault(rec["kind"], {})
+            counts[reason] = counts.get(reason, 0) + 1
         return {"by_kind": by_kind, "behind_by_job": tally("job behind schedule"),
                 "silent_by_type": tally("helper silent 20m+"),
                 "job_wait_by_hour": {h: round(m) for h, m in job_wait.items()},
                 "asks_by_hour": {h: {"count": len(v), "median": round(statistics.median(v))} for h, v in asks.items()},
+                "asks_by_kind": {kind: {"count": len(v), "median": round(statistics.median(v))}
+                                  for kind, v in sorted(asks_by_kind.items())},
+                "end_reasons": endings,
                 "compactions": {r["name"]: r["context"]["compactions"] for r in rows if r.get("context", {}).get("compactions")}}
 
 

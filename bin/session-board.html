@@ -12,8 +12,8 @@
 :root {
   /* command station: phosphor green and amber on black; red only ever means you */
   --bg: #020503; --panel: rgba(6, 16, 9, .84); --line: rgba(60, 255, 130, .16);
-  --text: #d2ecd6; --muted: #6f8f76; --cyan: #39ff88; --magenta: #d9c45a; --amber: #ffb400;
-  --red: #ff2a3c; --mint: #9dff6a; --slate: #4d6653;
+  --text: #d2ecd6; --muted: #9bbda1; --cyan: #39ff88; --magenta: #d9c45a; --amber: #ffb400;
+  --red: #ff2a3c; --mint: #9dff6a; --slate: #8fad95;
   --stencil: "Stencil", "Impact", "Arial Narrow Bold", var(--mono);
   --mono: "Cascadia Code", "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
   --sans: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
@@ -83,6 +83,9 @@ header {
 #alert button { font: clamp(20px, 2.2vw, 32px) var(--stencil); letter-spacing: .2em; padding: 14px 40px; cursor: pointer; color: var(--red); background: #fff; border: 0; }
 @keyframes blink { 50% { color: var(--red); text-shadow: none; } }
 @media (prefers-reduced-motion: reduce) { #alert .big, .radar, .defcon i { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
 .stats { display: flex; gap: 22px; flex-wrap: wrap; }
 .stat { display: flex; flex-direction: column; cursor: default; }
 .stat .n { font: 600 22px var(--mono); line-height: 1.05; }
@@ -126,7 +129,7 @@ header {
   background: linear-gradient(90deg, var(--cyan) var(--u), rgba(80, 100, 140, .22) 0); }
 .lim.warm i { background: linear-gradient(90deg, var(--amber) var(--u), rgba(80, 100, 140, .22) 0); }
 .lim.hot i { background: linear-gradient(90deg, var(--red) var(--u), rgba(80, 100, 140, .22) 0); }
-#grid.stale { opacity: .35; filter: grayscale(.8); }
+#grid.stale { filter: grayscale(.65); outline: 2px dashed var(--amber); outline-offset: -2px; }
 #needs .lbl { font: 700 15px var(--mono); letter-spacing: .18em; color: #fff; text-shadow: 0 0 12px var(--red); }
 .ask { display: flex; gap: 8px; align-items: baseline; max-width: 520px; padding: 7px 12px; cursor: pointer;
   background: rgba(255, 40, 60, .22); border: 1px solid var(--red); border-radius: 4px; }
@@ -135,7 +138,7 @@ header {
 .ask span { font-size: 13px; color: #ffd6db; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ask em { font: 600 12px var(--mono); font-style: normal; color: #ff8a98; white-space: nowrap; }
 
-main { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; padding: 16px 24px 40px; }
+main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 16px; padding: 16px 24px 40px; }
 .tile {
   --c: var(--slate); position: relative; padding: 12px 16px 10px; cursor: pointer; max-height: 300px; overflow: hidden;
   background: var(--panel); backdrop-filter: blur(10px);
@@ -160,7 +163,7 @@ main { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr
 .tile .warning { font: 700 11px var(--mono); letter-spacing: .08em; color: #000; background: var(--amber);
   padding: 2px 8px; margin: 4px 0 2px; border-radius: 3px; text-transform: uppercase; }
 @media (prefers-reduced-motion: reduce) { .tile.NEEDS, #needs, .stat.hot { animation: none; } }
-.tile.IDLE { opacity: .8; }
+.tile.IDLE { outline: 1px solid var(--slate); outline-offset: -1px; }
 .top { display: flex; align-items: baseline; gap: 8px; }
 .name { font: 600 15px var(--mono); color: #fff; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sid { font: 12px var(--mono); color: var(--muted); }
@@ -240,6 +243,15 @@ main { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr
 .close { position: absolute; top: 14px; right: 22px; font: 12px var(--mono); color: var(--muted); }
 .empty { grid-column: 1 / -1; text-align: center; padding: 80px; font: 14px var(--mono); letter-spacing: .3em; color: var(--muted); }
 .hint { font: 11px var(--mono); color: var(--muted); padding: 0 24px 20px; }
+@media (max-width: 500px) {
+  header { padding: 12px 16px; gap: 12px; }
+  .brand { font: 16px var(--stencil); letter-spacing: .08em; }
+  .stats { gap: 14px; }
+  .right { margin-left: 0; }
+  main { padding: 12px 16px 32px; }
+  #needs, #link, #bots, #untested { margin-left: 16px; margin-right: 16px; }
+  .hint { padding: 0 16px 20px; }
+}
 </style>
 </head>
 <body>

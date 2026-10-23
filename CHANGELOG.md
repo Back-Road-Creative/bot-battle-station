@@ -18,6 +18,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   malformed TOML without a traceback. Ignore unrelated empty `.git` directories
   when locating a config checkout. Add a `--version` CLI option.
 - Remove temporary demo session files when the board exits.
+- Validate kiosk launcher arguments, identify the board before reusing a local
+  server, and provide an uninstall option without disabling execution policy.
 
 ### Tests
 

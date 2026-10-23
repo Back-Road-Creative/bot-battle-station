@@ -147,11 +147,14 @@ Edge/Chrome profile with sound allowed. Install it once from WSL, in the checkou
 Startup shortcut so it runs at every login:
 
 ```bash
-powershell.exe -ExecutionPolicy Bypass -File "$(wslpath -w bin/session-board-kiosk.ps1)" -Install -Repo "$PWD"
+powershell.exe -ExecutionPolicy RemoteSigned -File "$(wslpath -w bin/session-board-kiosk.ps1)" -Install -Repo "$PWD"
 ```
 
 `-User` (default: the distro's default user) and `-Command` (default
-`python3 bin/session-board.py`) are there if yours differ.
+`python3 bin/session-board.py`) are there if yours differ. The launcher accepts
+only simple command arguments and WSL paths without spaces; it does not run
+shell syntax from these options. To remove the startup shortcut and installed
+script, run the same command with `-Uninstall` in place of `-Install`.
 
 ## Privacy and safety
 

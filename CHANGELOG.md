@@ -14,6 +14,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - Bound ask text saved in local wait history to a 240-character preview.
+- Show unknown start times honestly, expand configured home paths, and report
+  malformed TOML without a traceback. Ignore unrelated empty `.git` directories
+  when locating a config checkout. Add a `--version` CLI option.
 
 ## 0.2.0
 

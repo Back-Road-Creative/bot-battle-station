@@ -35,6 +35,9 @@ Other options: `--interval` sets the refresh time in seconds; `--claude-dir` and
 `--codex-dir` select the session directories; `--config` selects the TOML file;
 `--roster` selects the session-name list; and `--waits-log` and `--alerts-log`
 select the local JSONL logs. Run `python3 bin/session-board.py --help` for defaults.
+`--version` prints the board release version. A malformed TOML config produces
+a one-line error with exit code 2. A session with no start time shows "unknown"
+instead of a 1970 uptime.
 
 Under WSL, a Windows browser opens it at `http://localhost:8765`.
 

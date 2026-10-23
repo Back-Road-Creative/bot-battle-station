@@ -14,6 +14,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   when a job has no run history and no ETA yet.
 - Move daily history onto the board and group answered asks by source and
   warnings by observed ending reason, preserving older records as unknown.
+- Explain mixed Claude Code and Codex counts in the header and legend, show
+  total context in use, and count duplicate session records only once.
 - Keep board tiles readable on narrow screens and under reduced motion, with
   clearer muted text and stale-state styling.
 - Let keyboard users open tiles and requests and keep focus during refreshes;

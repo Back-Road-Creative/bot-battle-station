@@ -295,9 +295,9 @@ main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 
   <h3>Session states</h3>
   <table><tr><th>State</th><th>How it is decided</th><th>What you do</th></tr>
   <tr><td>NEEDS YOU</td><td>Claude Code reports a prompt open (permission, question, plan), or the last reply holds a command for you to run.</td><td>Answer the prompt, or run the command.</td></tr>
-  <tr><td>RUNNING</td><td>Claude Code reports the session busy.</td><td>Nothing.</td></tr>
-  <tr><td>WAITING ON JOB</td><td>A background job it started has not finished, and its process is still alive.</td><td>Nothing; it wakes when the job ends.</td></tr>
-  <tr><td>IDLE</td><td>Anything else: the turn is over. "for you:" shows its suggested next step and "waits on:" another session it named, never an alarm.</td><td>Read it when convenient.</td></tr></table>
+  <tr><td>RUNNING</td><td>Claude Code reports busy, or a Codex rollout has a turn in progress.</td><td>Nothing.</td></tr>
+  <tr><td>WAITING ON JOB</td><td>A Claude Code background job has not finished, and its process is still alive.</td><td>Nothing; it wakes when the job ends.</td></tr>
+  <tr><td>IDLE</td><td>No turn is in progress. On a Claude tile, "for you:" is a suggested next step and "waits on:" is another session it named, never an alarm.</td><td>Read it when convenient.</td></tr></table>
   <h3>Amber warnings (measured, never from a reply's wording)</h3>
   <table><tr><th>Warning</th><th>How it is measured</th><th>What you do</th></tr>
   <tr><td>job behind schedule</td><td>Running past the 80th percentile of at least 4 finished runs of the same kind in that session. The tile shows "usually X, now Y".</td><td>If a test run: a hang or a slow box. Look at the session's last output; stop it if it hangs.</td></tr>
@@ -306,13 +306,19 @@ main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 
   <tr><td>context near full</td><td>90% of the session's own auto-compact size (else this box's usual).</td><td>Let it finish its step, then start it fresh or let it compact.</td></tr></table>
   <h3>Header numbers</h3>
   <table><tr><th>Number</th><th>Meaning</th></tr>
+  <tr><td>sessions</td><td>Distinct visible Claude Code and Codex sessions. Without a process table, Codex rollouts written in the last 10 minutes are treated as live.</td></tr>
+  <tr><td>working</td><td>Visible sessions in RUNNING now, from either bot.</td></tr>
+  <tr><td>codex</td><td>Visible Codex sessions, included in sessions and shown separately for clarity.</td></tr>
   <tr><td>need you</td><td>Sessions in NEEDS YOU now.</td></tr>
   <tr><td>you answer in</td><td>Median time today from a session needing you to it moving on.</td></tr>
   <tr><td>wait on jobs</td><td>Sessions that can do nothing until a job ends. Throughput, not an action: never red.</td></tr>
+  <tr><td>jobs</td><td>Running Claude Code background jobs and helpers.</td></tr>
+  <tr><td>plans done</td><td>Completed steps across distinct plans found in visible sessions.</td></tr>
+  <tr><td>context in use</td><td>Used context divided by available context across visible sessions. Each session contributes its own measured or estimated context size.</td></tr>
   <tr><td>all done by</td><td>The clock time the last session with an estimate should finish.</td></tr>
   <tr><td>PRs touched</td><td>Pull requests sessions opened, pushed or linked today. Not merges.</td></tr>
   <tr><td>load / cores</td><td>Box load against its cores; amber past the cores, when every job slows down.</td></tr>
-  <tr><td>tokens today</td><td>Tokens the open sessions and their helpers spent since midnight. This page calls no model.</td></tr></table>
+  <tr><td>tokens today</td><td>Claude Code tokens and helpers since midnight; Codex tokens are not included. This page calls no model.</td></tr></table>
   <p>Estimates (~) are medians of this box's own finished runs. Esc closes.</p>
 </div></div>
 <script>
@@ -470,23 +476,28 @@ function header(rows) {
   const need = rows.filter(s => s.state === "NEEDS YOU").length;
   const plans = new Map(rows.filter(s => s.plan).map(s => [s.plan.name, s.plan]));
   const done = [...plans.values()].reduce((n, p) => n + p.done, 0), total = [...plans.values()].reduce((n, p) => n + p.total, 0);
+  const contextUsed = rows.reduce((n, s) => n + (s.context?.used || 0), 0);
+  const contextFull = rows.reduce((n, s) => n + (s.context?.full || 0), 0);
   const lefts = rows.map(s => s.progress.left).filter(x => x != null), onJobs = rows.filter(s => s.state === "WAITING ON JOB");
   const today = rows.reduce((n, s) => n + s.tokens.today, 0), cache = rows.reduce((n, s) => n + s.tokens.cache, 0);
   document.getElementById("stats").replaceChildren(
-    stat(rows.length, "sessions", "Open Claude Code sessions on this box."),
-    stat(rows.filter(s => s.state === "RUNNING").length, "working", "Sessions working right now."),
+    stat(rows.length, "sessions", "Distinct visible Claude Code and Codex sessions on this box."),
+    stat(rows.filter(s => s.state === "RUNNING").length, "working", "Claude Code and Codex sessions working right now."),
+    stat(data.codex_count ?? rows.filter(s => s.bot === "codex").length, "codex", "Visible Codex sessions, included in the sessions total."),
     stat(need, "need you", "Sessions with a prompt open (permission, question, plan) or a command in their last reply for you to run. A suggested next step does not count. Waiting on a job or another session does not count.", need > 0),
     stat(data.waits.answered ? dur(data.waits.median) : "—", "you answer in",
       `Median time from a session asking you to it moving on, over the ${data.waits.answered} asks answered today`
       + (data.waits.longest != null ? ` (longest ${dur(data.waits.longest)})` : "") + ". Every wait is logged in waits.jsonl in the state dir."),
     stat(onJobs.length, "wait on jobs", "Sessions with nothing to do until a job (CI, a test run) finishes"
       + (onJobs.length ? `; the longest has waited ${dur(Math.max(...onJobs.map(s => s.waited || 0)))}.` : ".") + " Throughput, not an action: never red."),
-    stat(rows.reduce((n, s) => n + s.jobs.length, 0), "jobs", "Background jobs and helper agents running."),
+    stat(rows.reduce((n, s) => n + s.jobs.length, 0), "jobs", "Claude Code background jobs and helper agents running."),
     stat(total ? Math.round(100 * done / total) + "%" : "—", "plans done", `${done} of ${total} steps across ${plans.size} plans.`),
+    stat(contextFull ? Math.round(100 * contextUsed / contextFull) + "%" : "—", "context in use",
+      contextFull ? `${tokens(contextUsed)} of ${tokens(contextFull)} context tokens used across visible sessions.` : "No session context size available yet."),
     stat(lefts.length ? "~" + new Date(Date.now() + 1000 * Math.max(...lefts)).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : "—",
       "all done by", lefts.length ? `When the last session with an estimate should finish: ~${dur(Math.max(...lefts))} from now, from each session's own pace.` : "No session has an estimate yet."),
     stat(new Set(rows.flatMap(s => s.prs_today)).size, "PRs touched", "Different pull requests sessions opened, pushed or linked today. Not merges."),
-    stat(tokens(today), "tokens today", `Tokens the open sessions and their helpers spent since midnight (new input, cache writes, output; each reply once), plus ${tokens(cache)} re-read from cache. This page itself calls no model.`),
+    stat(tokens(today), "tokens today", `Claude Code sessions and helpers spent this many tokens since midnight (new input, cache writes, output; each reply once), plus ${tokens(cache)} re-read from cache. Codex tokens are not included; this page calls no model.`),
     stat(`${data.load}/${data.cores}`, "load / cores", "Box load (1 minute) against its cores. Past the cores, work queues and every job runs slower.",
       data.load !== "?" && +data.load > data.cores));
   dayStats();

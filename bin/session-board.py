@@ -596,7 +596,7 @@ class Board:
         return rows
 
     def live_sessions(self) -> list[dict]:
-        out, proc = [], (PROC / "self").exists()
+        by_sid, proc = {}, (PROC / "self").exists()
         for reg in sorted((self.claude_dir / "sessions").glob("*.json")):
             try:
                 info = json.loads(reg.read_text(encoding="utf-8"))
@@ -612,8 +612,11 @@ class Board:
                 continue  # pid reused by another process
             if info.get("version"):
                 self.versions.add(str(info["version"]))
-            out.append(info)
-        return sorted(out, key=lambda s: (not s.get("startedAt"), s.get("startedAt") or 0))
+            if info.get("sessionId"):
+                previous = by_sid.get(info["sessionId"])
+                if previous is None or (info.get("startedAt") or 0) >= (previous.get("startedAt") or 0):
+                    by_sid[info["sessionId"]] = info
+        return sorted(by_sid.values(), key=lambda s: (not s.get("startedAt"), s.get("startedAt") or 0))
 
     def agent_history(self) -> dict[str, list[float]]:
         """Run times of finished sub-agents by type, newest AGENT_HISTORY_CAP; built once."""
@@ -683,7 +686,7 @@ class Board:
         """Live Codex sessions as page rows: its own threads, not the sub-threads (reviews, helpers) they start."""
         if not self.codex_dir or not (self.codex_dir / "sessions").is_dir():
             return []
-        held, roster, names, rows = codex_open_files(), self.roster(), {}, []
+        held, roster, names, by_sid = codex_open_files(), self.roster(), {}, {}
         try:
             for line in (self.codex_dir / "session_index.jsonl").read_text(encoding="utf-8").splitlines():
                 entry = json.loads(line)
@@ -698,6 +701,7 @@ class Board:
         for path in sorted(paths):
             try:
                 ro = self.rollout(path)
+                mtime = path.stat().st_mtime
             except OSError:
                 continue
             meta = ro["meta"]
@@ -709,13 +713,13 @@ class Board:
                 if sid.startswith(prefix):
                     name, role = roster[prefix]
                     break
-            started = parse_ts(meta.get("timestamp")) or path.stat().st_mtime
-            last = ro["said_ts"] or path.stat().st_mtime
+            started = parse_ts(meta.get("timestamp")) or mtime
+            last = ro["said_ts"] or mtime
             info = ro["info"] or {}
             used = int((info.get("last_token_usage") or {}).get("input_tokens") or 0)
             full = int(info.get("model_context_window") or 0) or DEFAULT_CONTEXT
             title = names.get(sid) or clip(ro["asked"], 80)
-            rows.append({
+            row = {
                 "bot": "codex", "name": name, "role": role, "sid": sid[:8],
                 "state": "RUNNING" if ro["running"] else "IDLE",
                 "eta": "working" if ro["running"] else "ready",
@@ -729,8 +733,11 @@ class Board:
                 "finished": 0, "meters": {"working": None, "shipped": 0, "pace": None}, "timeline": "-" * HOUR,
                 "context": {"used": used, "full": full, "pct": min(round(100 * used / full), 100), "basis": "own",
                             "compactions": 0},
-                "jobs": []})
-        return rows
+                "jobs": []}
+            previous = by_sid.get(sid)
+            if previous is None or mtime >= previous[0]:
+                by_sid[sid] = (mtime, row)
+        return [row for _, row in by_sid.values()]
 
     def bots(self, rows: list[dict], now: float) -> dict:
         """Per-bot numbers for the page's top strip: live sessions, and each bot's usage limits where a file has them."""
@@ -1363,9 +1370,10 @@ def make_server(board: Board, port: int, log: Path | None = None, alerts_log: Pa
                     day = alerts.stats(now, waits.done, rows)
                 load = loadavg()
                 level, why = defcon(rows)
+                bot_stats = board.bots(rows, now)
                 body = json.dumps({"api": API_VERSION, "now": now, "load": load, "cores": os.cpu_count(), "defcon": {"level": level, "why": why},
                                    "waits": stats, "alerts": day, "untested": untested_versions(board.versions),
-                                   "bots": board.bots(rows, now), "sessions": rows}).encode()
+                                   "bots": bot_stats, "codex_count": bot_stats["codex"]["sessions"], "sessions": rows}).encode()
                 ctype = "application/json"
             elif self.path.split("?")[0] in ("/", "/index.html"):
                 body, ctype = page.read_bytes(), "text/html; charset=utf-8"

@@ -54,6 +54,12 @@ Keyboard users can Tab to tiles and requests, press Enter or Space to open them,
 Close button or Esc to return to the tile. Focus stays on the control during refreshes.
 Tiles reflow on narrow screens, and the board respects the system's reduced-motion setting.
 
+The header's **sessions** total includes both Claude Code and Codex tiles; **codex** shows its
+Codex subset separately. Duplicate registry entries or rollouts with the same session ID count
+once. **Context in use** sums the used context tokens across visible sessions and divides by
+their summed context sizes. **Tokens today** measures Claude Code sessions and helpers; Codex
+tokens are not included. The `?` legend defines each header number and session state.
+
 | State | When | What you do |
 |---|---|---|
 | NEEDS YOU | Claude Code says the session is `waiting` (a permission prompt, a question, a plan to approve), or a line of its last reply matches one of your `ask_commands` | Open the session and answer its pending request. |

@@ -642,6 +642,14 @@ def test_header_numbers_say_what_they_measure():
         assert part in page, part
 
 
+def test_duplicate_live_registry_entries_make_one_claude_tile(tmp_path):
+    claude, _ = make_box(tmp_path, [])
+    reg = next((claude / "sessions").glob("*.json"))
+    (claude / "sessions" / "duplicate.json").write_text(reg.read_text())
+    rows = sb.Board(claude, None).snapshot(time.time())
+    assert [r["sid"] for r in rows] == [SID[:8]]
+
+
 def test_alert_log_records_each_warning_spell_and_what_followed(tmp_path):
     """One line per warning spell; the day's stats say how often each kind cleared alone or led to NEEDS YOU."""
     path, now = tmp_path / "alerts.jsonl", datetime.now().replace(hour=12, minute=0).timestamp()
@@ -942,6 +950,19 @@ def test_codex_without_a_process_table_counts_recent_rollouts_and_reads_idle(tmp
     assert sb.Board(tmp_path / "claude", None, codex_dir=codex).codex_rows(now) == []
 
 
+def test_duplicate_codex_rollouts_make_one_tile_with_latest_state(tmp_path, monkeypatch):
+    now = time.time()
+    codex = make_codex(tmp_path, now, name="earlier", last="task_complete")
+    make_codex(tmp_path, now, name="later", last="task_started")
+    paths = sorted(codex.glob("sessions/*/*/*/*.jsonl"))
+    os.utime(paths[0], (now - 30, now - 30))
+    os.utime(paths[1], (now - 10, now - 10))
+    monkeypatch.setattr(sb, "codex_open_files", lambda: None)
+    rows = sb.Board(tmp_path / "claude", None, codex_dir=codex).codex_rows(now)
+    assert len(rows) == 1
+    assert rows[0]["state"] == "RUNNING"
+
+
 def test_bot_stats_count_each_bot_and_read_both_limits(tmp_path, monkeypatch):
     """Codex limits come from its newest rollout; Claude's from the file a status line writes, else none."""
     now = time.time()
@@ -999,6 +1020,7 @@ def test_api_tags_every_session_with_its_bot_and_carries_bot_stats(tmp_path, mon
     finally:
         server.shutdown()
     assert sorted(s["bot"] for s in data["sessions"]) == ["claude", "codex"]
+    assert data["codex_count"] == 1
     assert data["bots"]["claude"]["sessions"] == 1 and data["bots"]["codex"]["sessions"] == 1
     page = (BIN / "session-board.html").read_text()
     assert 'id="bots"' in page and "s.bot" in page

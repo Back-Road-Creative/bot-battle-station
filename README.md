@@ -13,8 +13,9 @@ It spends no tokens. It reads only the files Claude Code already writes.
 
 ## Try it
 
-Python 3.11 or newer, standard library only. Linux and WSL are what it is built and tested on;
-macOS works without the `/proc` checks (below). Windows-native Claude Code is not covered.
+Python 3.11 or newer, standard library only. CI tests Linux and macOS;
+macOS uses the process-liveness fallback without `/proc` (below). Windows-native
+Claude Code is not covered.
 
 ```bash
 git clone https://github.com/Back-Road-Creative/bot-battle-station.git

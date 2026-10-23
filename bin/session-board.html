@@ -324,6 +324,7 @@ main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 
 <script>
 const seen = new Map();   // sid -> {state, jobs, pct}: what the last poll showed, for motion cues
 let data = null, at = 0, focusSid = location.hash.slice(1) || null, first = true;   // #<sid> opens that session
+const POLL_INTERVAL_MS = 2000;   // replaced by the loopback server for --interval
 
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 function action(node, label, run) {
@@ -733,7 +734,7 @@ document.addEventListener("keydown", e => {
 setInterval(() => { document.getElementById("clock").textContent = new Date().toLocaleTimeString([], {hour12: false}); countdown(); }, 1000);
 document.getElementById("help").onclick = () => document.getElementById("legend").classList.add("on");
 document.getElementById("legend").onclick = e => { if (e.target.id === "legend") e.target.classList.remove("on"); };
-tick(); setInterval(tick, 2000);
+tick(); setInterval(tick, POLL_INTERVAL_MS);
 </script>
 </body>
 </html>

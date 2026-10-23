@@ -32,7 +32,8 @@ python3 bin/session-board.py --demo     # five invented sessions; temp files rem
 python3 bin/session-board.py --doctor   # what it found to read: counts and key names, no values
 ```
 
-Other options: `--interval` sets the refresh time in seconds; `--claude-dir` and
+Other options: `--interval` sets web and terminal refresh time (0.25–3600 seconds;
+default 2); `--claude-dir` and
 `--codex-dir` select the session directories; `--config` selects the TOML file;
 `--roster` selects the session-name list; and `--waits-log` and `--alerts-log`
 select the local JSONL logs. Run `python3 bin/session-board.py --help` for defaults.
@@ -189,7 +190,9 @@ script, run the same command with `-Uninstall` in place of `-Install`.
   the condition cleared while the session was visible or the session stopped
   appearing; disappearance does not prove it completed.
 - **`--doctor`** prints counts, registry key names and Claude Code versions, never a path, name,
-  id or text, so its output can go in a bug report.
+  id or text, so its output can go in a bug report. It also reports whether the Codex
+  session directory and Claude limits file were found, plus live Codex session and
+  readable usage-window counts. It reads the configured `claude_limits` path.
 
 ## Compatibility
 

@@ -1347,7 +1347,8 @@ API_VERSION = 1  # /api is a contract: removing or renaming a key bumps it
 LOOPBACK_HOST_RE = re.compile(r"^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$", re.I)
 
 
-def make_server(board: Board, port: int, log: Path | None = None, alerts_log: Path | None = None):
+def make_server(board: Board, port: int, log: Path | None = None, alerts_log: Path | None = None,
+                interval: float = 2.0):
     """A loopback-only HTTP server: / is the page, /api the snapshot. WSL forwards it to Windows."""
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -1376,7 +1377,9 @@ def make_server(board: Board, port: int, log: Path | None = None, alerts_log: Pa
                                    "bots": bot_stats, "codex_count": bot_stats["codex"]["sessions"], "sessions": rows}).encode()
                 ctype = "application/json"
             elif self.path.split("?")[0] in ("/", "/index.html"):
-                body, ctype = page.read_bytes(), "text/html; charset=utf-8"
+                body = page.read_bytes().replace(b"const POLL_INTERVAL_MS = 2000;",
+                                                 f"const POLL_INTERVAL_MS = {round(interval * 1000)};".encode())
+                ctype = "text/html; charset=utf-8"
             else:
                 self.send_error(404)
                 return
@@ -1490,10 +1493,10 @@ def demo_box(root: Path) -> Path:
 DOCTOR_KEYS = ("pid", "sessionId", "procStart", "status", "startedAt", "name", "cwd", "version")
 
 
-def doctor(claude_dir: Path) -> list[str]:
+def doctor(claude_dir: Path, codex_dir: Path | None = None, limits_file: Path | None = None) -> list[str]:
     """What the board finds to read: counts and key names only, never a value, path or line of text."""
     regs = sorted((claude_dir / "sessions").glob("*.json"))
-    board = Board(claude_dir, None)
+    board = Board(claude_dir, None, codex_dir, limits_file)
     live = board.live_sessions()
     logs = [p for s in live for p in claude_dir.glob(f"projects/*/{s.get('sessionId', '')}.jsonl")]
     notices = 0
@@ -1512,6 +1515,14 @@ def doctor(claude_dir: Path) -> list[str]:
         out.append(f"  {key}: {have} of {len(live)}" if have else f"  {key}: missing")
     versions, newer = sorted(board.versions), untested_versions(board.versions)
     out.append(f"Claude Code versions: {', '.join(versions) or 'none recorded'} (checked against {TESTED[0]}.{TESTED[1]}.x)")
+    now = time.time()
+    codex_rows = board.codex_rows(now)
+    bot_stats = board.bots(codex_rows, now)
+    out.extend((f"codex sessions dir: {'found' if codex_dir and (codex_dir / 'sessions').is_dir() else 'missing'}",
+                f"codex live sessions: {len(codex_rows)}",
+                f"codex limits windows: {len(bot_stats['codex']['limits'])}",
+                f"Claude limits file: {'found' if limits_file and limits_file.is_file() else 'missing'}",
+                f"Claude limits windows: {len(bot_stats['claude']['limits'])}"))
     if newer:
         out.append(f"newer than checked: {', '.join(newer)}; if a number looks wrong, attach this report")
     return out
@@ -1519,6 +1530,17 @@ def doctor(claude_dir: Path) -> list[str]:
 
 def default_claude_dir() -> Path:
     return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+
+
+def poll_interval(value: str) -> float:
+    """A safe polling interval for both the web page and terminal view."""
+    try:
+        seconds = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("interval must be 0.25 to 3600 seconds") from exc
+    if not 0.25 <= seconds <= 3600:
+        raise argparse.ArgumentTypeError("interval must be 0.25 to 3600 seconds")
+    return seconds
 
 
 def configure(path: Path | None) -> dict:
@@ -1548,7 +1570,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--once", action="store_true", help="print one plain frame and exit")
     ap.add_argument("--tui", action="store_true", help="full-screen terminal board instead of the web page")
     ap.add_argument("--port", type=int, default=8765, help="web page port on 127.0.0.1 (default 8765)")
-    ap.add_argument("--interval", type=float, default=2.0, help="data refresh seconds (default 2)")
+    ap.add_argument("--interval", type=poll_interval, default=2.0, help="web and terminal refresh seconds, 0.25–3600 (default 2)")
     ap.add_argument("--claude-dir", type=Path, default=default_claude_dir(),
                     help="Claude Code's config dir (default: $CLAUDE_CONFIG_DIR, else $HOME/.claude)")
     ap.add_argument("--codex-dir", type=Path, default=Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex"),
@@ -1564,7 +1586,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--doctor", action="store_true", help="print what the board finds to read (no values) and exit")
     args = ap.parse_args(argv)
     if args.doctor:
-        print("\n".join(doctor(args.claude_dir)))
+        try:
+            cfg = configure(args.config)
+        except tomllib.TOMLDecodeError as exc:
+            print(f"session board: invalid config {args.config}: {exc}", file=sys.stderr)
+            return 2
+        print("\n".join(doctor(args.claude_dir, args.codex_dir,
+                               cfg["claude_limits"] or cfg["state_dir"] / "claude-limits.json")))
         return 0
     if args.demo:
         import tempfile
@@ -1597,7 +1625,7 @@ def run_board(args: argparse.Namespace, cfg: dict) -> int:
         print("\n".join(frame(board.snapshot(time.time()), width, time.time(), False)))
         return 0
     if not args.tui:
-        server = make_server(board, args.port, args.waits_log, args.alerts_log)
+        server = make_server(board, args.port, args.waits_log, args.alerts_log, args.interval)
         print(f"session board: http://localhost:{server.server_address[1]}/  (Ctrl+C stops)", flush=True)
         try:
             server.serve_forever()

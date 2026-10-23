@@ -19,6 +19,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   when locating a config checkout. Add a `--version` CLI option.
 - Remove temporary demo session files when the board exits.
 
+### Tests
+
+- Keep public test fixtures self-contained and clarify the optional Node render check.
+
 ## 0.2.0
 
 ### Added

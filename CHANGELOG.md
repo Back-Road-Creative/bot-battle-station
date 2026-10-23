@@ -25,6 +25,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Validate kiosk launcher arguments, identify the board before reusing a local
   server, and provide an uninstall option without disabling execution policy.
 
+### Tests
+
+- Keep public test fixtures self-contained and clarify the optional Node render check.
+
 ## 0.2.0
 
 ### Added

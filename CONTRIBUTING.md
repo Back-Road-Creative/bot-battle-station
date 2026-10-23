@@ -22,6 +22,8 @@ python3 -m pytest -q
 
 The tests build made-up Claude Code directories in a temp dir; they need no
 Claude Code install and no network. CI runs them on Python 3.11, 3.12 and 3.13.
+Node, when present, runs the page's own rendering code against a local stub DOM;
+the suite skips that check when Node is absent.
 
 ## What a change should look like
 

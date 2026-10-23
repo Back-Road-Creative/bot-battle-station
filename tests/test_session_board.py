@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import time
+from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
 
@@ -157,12 +158,14 @@ def test_plain_frame_fits_width_and_names_session(tmp_path, capsys):
     assert all(len(ln) <= width for ln in out) and "\033" not in "".join(out)
 
 
-def test_spends_no_tokens():
+@pytest.mark.parametrize("banned", (
+    "import anthropic", "import subprocess", "import socket", "urllib", "http.client",
+    "claude -p", "os.system", "os.popen",
+))
+def test_spends_no_tokens(banned):
     """The board reads files only: no model client, no network, no child process."""
     src = (BIN / "session-board.py").read_text()
-    for banned in ("import anthropic", "import subprocess", "import socket", "urllib", "http.client",
-                   "claude -p", "os.system", "os.popen"):
-        assert banned not in src, banned
+    assert banned not in src, banned
 
 
 PLAN = """# Leftovers plan
@@ -676,7 +679,7 @@ def test_a_page_bug_is_not_reported_as_offline():
     assert "PAGE ERROR" in page
 
 
-@pytest.mark.skipif(not __import__("shutil").which("node"), reason="node not on PATH: the page render check (#5325) runs the page in node")
+@pytest.mark.skipif(not __import__("shutil").which("node"), reason="Node is needed for the page render check")
 def test_page_renders_a_real_api_snapshot(tmp_path):
     """Run the page's own render() on /api output in node: a runtime error (a shadowed name, a missing field)
     would show the board as broken while every Python test passed."""
@@ -918,12 +921,12 @@ def test_codex_session_its_process_holds_open_is_a_row_with_its_bot(tmp_path, mo
     make_codex(tmp_path, now, sid="0c0dec00-aaaa-7bbb-8ccc-ddddeeee0003", name="closed")
     monkeypatch.setattr(sb, "codex_open_files", CODEX_OPEN_FILES)
     monkeypatch.setattr(sb, "CODEX_PROC_RE", __import__("re").compile(rb"."))  # this test's process holds them
-    held = [open(p) for p in sorted(codex.glob("sessions/*/*/*/*.jsonl")) if "closed" not in p.name]
-    try:
+    with ExitStack() as files:
+        held = [files.enter_context(p.open()) for p in sorted(codex.glob("sessions/*/*/*/*.jsonl"))
+                if "closed" not in p.name]
         [row] = sb.Board(tmp_path / "claude", None, codex_dir=codex).codex_rows(now)
-    finally:
-        for fh in held:
-            fh.close()
+        assert all(not fh.closed for fh in held)
+    assert all(fh.closed for fh in held)
     assert (row["bot"], row["sid"], row["state"], row["title"]) == ("codex", "0c0dec00", "RUNNING", "Tidy the parser")
     assert row["name"] == "project-9" and row["now"] == "Splitting the parser into two passes."
     assert row["context"]["pct"] == 50 and row["jobs"] == [] and row["warn"] == []

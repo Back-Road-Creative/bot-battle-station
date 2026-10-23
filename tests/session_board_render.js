@@ -1,4 +1,5 @@
-// Run session-board.html in node with a stub DOM: catches runtime errors a syntax check misses.
+// Run session-board.html in node with a local stub DOM: catches runtime errors a syntax check misses.
+// This harness is maintained with the page contract; it has no downloaded JS dependencies.
 // usage: node tests/session_board_render.js <page.html> <api.json> [offline]
 //   default: render() the /api snapshot, print "render ok".
 //   offline: fail every fetch while the clock moves 2 s per poll, then answer again; print when the

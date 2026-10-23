@@ -22,6 +22,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Claude's supported usage-window fields in a private file.
 - Keep board tiles readable on narrow screens and under reduced motion, with
   clearer muted text and stale-state styling.
+- Give the empty board a visible first step and a source-check hint.
+- Raise compact status, tile, history, and help labels to a 14px minimum for kiosk readability.
 - Let keyboard users open tiles and requests and keep focus during refreshes;
   keep long requests inside the phone-width alert banner.
 - Clarify benign exception handling and tuple pairing in the board internals.

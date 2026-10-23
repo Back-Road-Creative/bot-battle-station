@@ -10,9 +10,20 @@ const api = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
 const els = new Map();
 function E() {
   return new Proxy({style: {setProperty() {}}, dataset: {}, className: "", textContent: "", title: "",
-    classList: {add() {}, remove() {}, toggle() {}, contains() { return false; }}, children: [],
-    append() {}, prepend() {}, replaceChildren() {}, appendChild() {}, setAttribute() {}, querySelectorAll() { return []; },
-    querySelector() { return E(); }, addEventListener() {}, lastChild: {textContent: ""}},
+    classList: {add() {}, remove() {}, toggle() {}, contains() { return false; }}, children: [], parentNode: null,
+    append(...nodes) { for (const node of nodes) this.insertBefore(node, null); },
+    prepend(...nodes) { for (const node of [...nodes].reverse()) this.insertBefore(node, this.children[0] || null); },
+    replaceChildren(...nodes) { for (const child of [...this.children]) child.remove(); this.append(...nodes); },
+    appendChild(node) { this.append(node); },
+    insertBefore(node, ref) {
+      node.remove();
+      const index = ref == null ? this.children.length : this.children.indexOf(ref);
+      this.children.splice(index, 0, node); node.parentNode = this;
+    },
+    remove() { if (this.parentNode) { this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1); this.parentNode = null; } },
+    setAttribute() {}, querySelectorAll() { return []; },
+    querySelector() { return E(); }, addEventListener() {},
+    get lastChild() { return this.children.at(-1) || this._lastChild; }, _lastChild: {textContent: ""}},
   {get(t, k) { return k in t ? t[k] : undefined; }, set(t, k, v) { t[k] = v; return true; }});
 }
 globalThis.document = {getElementById: id => els.get(id) || els.set(id, E()).get(id), createElement: () => E(),

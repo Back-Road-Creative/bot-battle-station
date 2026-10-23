@@ -232,6 +232,12 @@ main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 
 #legend table { width: 100%; border-collapse: collapse; font-size: 13px; }
 #legend th, #legend td { text-align: left; vertical-align: top; padding: 5px 8px; border-bottom: 1px solid var(--line); }
 #legend h3 { margin: 14px 0 4px; letter-spacing: .12em; }
+#history { margin: 0 24px 24px; padding: 12px 18px; border: 1px solid var(--line); background: var(--panel); }
+#history summary { cursor: pointer; font: 14px var(--mono); color: var(--text); }
+#today { overflow-x: auto; }
+#today table { width: 100%; border-collapse: collapse; font-size: 13px; }
+#today th, #today td { text-align: left; vertical-align: top; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+#today h3 { margin: 14px 0 4px; letter-spacing: .08em; }
 #focus .gauge { width: 150px; } #focus .ring { width: 120px; height: 120px; } #focus .ring .pct { font-size: 30px; } #focus .gauge .left { font-size: 14px; }
 #focus .name { font-size: 20px; } #focus .title { font-size: 19px; white-space: normal; }
 #focus .now { -webkit-line-clamp: 4; font-size: 14px; }
@@ -257,6 +263,7 @@ main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 
   #needs, #link, #bots, #untested { margin-left: 16px; margin-right: 16px; }
   .ask { flex: 1 1 100%; width: 100%; }
   .hint { padding: 0 16px 20px; }
+  #history { margin: 0 16px 20px; }
 }
 </style>
 </head>
@@ -274,10 +281,10 @@ main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 
 <div id="bots" title="Each bot's live sessions and usage limits. Codex limits come from its own session files; Claude's from the file your status line writes (see the README)."></div>
 <div id="needs"></div>
 <main id="grid"></main>
+<details id="history"><summary>Today’s history</summary><div id="today"></div></details>
 <div class="hint">Select a tile or press 1-9 for the full view · Esc closes</div>
 <div id="focus" role="dialog" aria-modal="true" aria-label="Session details"></div>
 <div id="legend"><div>
-  <div id="today"></div>
   <h3>DEFCON: the box's level, worst first</h3>
   <table><tr><th>Level</th><th>When</th><th>What you do</th></tr>
   <tr><td>DEFCON 1</td><td>A session NEEDS YOU.</td><td>Open it (1-9 or click) and answer. The only level with a siren.</td></tr>
@@ -500,11 +507,18 @@ function dayStats() {   // the day's warning stats, from alerts.jsonl and waits.
   box.replaceChildren(el("h3", "", "Today: which warnings were worth having"),
     table(["Warning", "Times", "Median length", "Led to NEEDS YOU"], pairs(a.by_kind).map(([k, v]) =>
       [k, v.count, v.median == null ? "—" : dur(v.median), v.to_you == null ? "—" : v.to_you + "%"])),
-    el("p", "", "A warning that rarely leads to NEEDS YOU and clears by itself is noise: raise its threshold."),
+    el("p", "", "A warning that rarely leads to NEEDS YOU and clears by itself may be noise."),
+    el("h3", "", "Warning endings"), table(["Warning", "End reason", "Times"],
+      pairs(a.end_reasons).flatMap(([kind, reasons]) => pairs(reasons).map(([reason, count]) =>
+        [kind, reason.replaceAll("_", " "), count]))),
+    el("p", "", "Condition cleared means the warning disappeared while the session remained visible. Missing sessions are not proof that they ended; older records have an unknown reason."),
     el("h3", "", "Behind schedule, by job"), table(["Job", "Times"], pairs(a.behind_by_job)),
     el("h3", "", "Helpers gone silent, by type"), table(["Agent type", "Times"], pairs(a.silent_by_type)),
     el("h3", "", "Time sessions sat waiting on jobs, by hour"), table(["Hour", "Minutes"], hours(a.job_wait_by_hour)),
     el("h3", "", "Asks, by hour"), table(["Hour", "Asks", "You answered in"], hours(a.asks_by_hour).map(([h, v]) => [h, v.count, dur(v.median)])),
+    el("h3", "", "Asks, by kind"), table(["Ask source", "Answered", "You answered in"], pairs(a.asks_by_kind).map(([kind, v]) =>
+      [kind, v.count, dur(v.median)])),
+    el("p", "", "Prompt means the session reported a waiting prompt; command means its reply matched your configured command rule. Unknown covers older records."),
     el("h3", "", "Compactions, by session"), table(["Session", "Compactions"], pairs(a.compactions)));
 }
 

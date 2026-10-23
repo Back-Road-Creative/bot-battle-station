@@ -378,7 +378,10 @@ function steps(s, max) {
     const l = el("div", "l"); l.append(el("em", null, j.kind), document.createTextNode(j.label)); l.title = j.label;
     const bar = el("div", "bar");
     if (!j.watch) { const b = el("b"); b.style.width = (j.frac == null ? 0 : Math.min(100, 100 * j.frac)) + "%"; bar.append(b); }
-    const t = el("div", "t", j.kind === "serve" ? "running" : j.watch ? "waiting" : j.when); t.title = j.when;
+    const t = el("div", "t", j.kind === "serve" ? "running" : j.watch ? "waiting" : j.when);
+    t.title = j.watch || j.kind === "serve" ? j.when : j.runs > 0
+      ? `${j.when}. Based on ${j.runs} finished run${j.runs === 1 ? "" : "s"} of this kind.`
+      : `${j.when}. No finished runs of this kind; no ETA yet.`;
     row.append(l, bar, t); box.append(row);
   }
   if (max === 3 && s.jobs.length > 2) box.append(el("div", "more", `+${s.jobs.length - 2} more jobs running`));

@@ -78,6 +78,8 @@ until you press ARM SIREN once.
 ETAs are medians of what already finished on your machine: a helper agent against finished
 agents of its type, a test run against finished runs of its kind, a plan against the session's
 own pace per step. With fewer than 4 finished runs a job is never called behind.
+Hover over a job's time to see how many finished runs support its estimate. With no finished
+runs of that kind, the job has no ETA yet. Watchers never have a job ETA.
 
 A plan is a Markdown file in one of your `plan_dirs` that the session's replies name at least 3
 times; its steps are the rows of a table with a Status column, or `- [ ]` / `- [x]` items.

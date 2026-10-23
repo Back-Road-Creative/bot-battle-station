@@ -17,6 +17,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Show unknown start times honestly, expand configured home paths, and report
   malformed TOML without a traceback. Ignore unrelated empty `.git` directories
   when locating a config checkout. Add a `--version` CLI option.
+- Remove temporary demo session files when the board exits.
 
 ## 0.2.0
 

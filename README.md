@@ -27,7 +27,7 @@ python3 bin/session-board.py            # your sessions: open http://localhost:8
 python3 bin/session-board.py            # web page on 127.0.0.1:8765 (--port to change)
 python3 bin/session-board.py --tui      # full-screen terminal board, q quits
 python3 bin/session-board.py --once     # one plain text frame (pipes, tests)
-python3 bin/session-board.py --demo     # five invented sessions in a temp dir
+python3 bin/session-board.py --demo     # five invented sessions; temp files removed on exit
 python3 bin/session-board.py --doctor   # what it found to read: counts and key names, no values
 ```
 

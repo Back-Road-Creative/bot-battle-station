@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -68,3 +69,19 @@ def test_missing_start_time_is_unknown_not_1970(tmp_path):
     public = board.row_json(row, now)
     assert public["started"] is None
     assert public["uptime"] == "unknown"
+
+
+def test_demo_removes_its_temporary_files_after_once(monkeypatch, capsys):
+    created = []
+    original = tempfile.mkdtemp
+
+    def record(*args, **kwargs):
+        path = original(*args, **kwargs)
+        created.append(Path(path))
+        return path
+
+    monkeypatch.setattr(tempfile, "mkdtemp", record)
+    assert board.main(["--demo", "--once"]) == 0
+    capsys.readouterr()
+    assert created
+    assert all(not path.exists() for path in created)

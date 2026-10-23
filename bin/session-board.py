@@ -1546,18 +1546,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.demo:
         import tempfile
         global proc_children, loadavg, codex_open_files
-        root = Path(tempfile.mkdtemp(prefix="board-demo-"))
-        cfg, args.claude_dir, args.codex_dir = configure(None), demo_box(root), root / "codex"
-        cfg["state_dir"], cfg["roster"] = root / "state", None
-        codex_open_files = lambda: None  # noqa: E731 - no process holds the demo's rollout; its age says live
-        proc_children = lambda: None  # noqa: E731 - the demo's jobs have no processes; trust the transcript
-        loadavg = lambda: DEMO_LOAD  # noqa: E731 - a screenshot shows a made-up load, not this box's
+        with tempfile.TemporaryDirectory(prefix="board-demo-") as demo_dir:
+            root = Path(demo_dir)
+            cfg, args.claude_dir, args.codex_dir = configure(None), demo_box(root), root / "codex"
+            cfg["state_dir"], cfg["roster"] = root / "state", None
+            codex_open_files = lambda: None  # noqa: E731 - no process holds the demo's rollout; its age says live
+            proc_children = lambda: None  # noqa: E731 - the demo's jobs have no processes; trust the transcript
+            loadavg = lambda: DEMO_LOAD  # noqa: E731 - a screenshot shows a made-up load, not this box's
+            return run_board(args, cfg)
     else:
         try:
             cfg = configure(args.config)
         except tomllib.TOMLDecodeError as exc:
             print(f"session board: invalid config {args.config}: {exc}", file=sys.stderr)
             return 2
+    return run_board(args, cfg)
+
+
+def run_board(args: argparse.Namespace, cfg: dict) -> int:
+    """Run the selected board view while any demo fixture directory is still open."""
     board = Board(args.claude_dir, args.roster or cfg["roster"], args.codex_dir,
                   cfg["claude_limits"] or cfg["state_dir"] / "claude-limits.json")
     args.waits_log = args.waits_log or cfg["state_dir"] / "waits.jsonl"

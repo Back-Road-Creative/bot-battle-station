@@ -26,6 +26,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Raise compact status, tile, history, and help labels to a 14px minimum for kiosk readability.
 - Let keyboard users open tiles and requests and keep focus during refreshes;
   keep long requests inside the phone-width alert banner.
+- Clarify benign exception handling and tuple pairing in the board internals.
 
 ### Fixed
 

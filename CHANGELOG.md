@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## 0.3.0
+
 ### Changed
 
 - Clarify command options, local state paths, board actions, and the loopback

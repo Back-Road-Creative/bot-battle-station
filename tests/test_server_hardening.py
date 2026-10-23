@@ -51,7 +51,7 @@ def test_invalid_config_exits_cleanly_without_a_traceback(tmp_path):
 def test_version_flag_reports_the_release_version():
     result = subprocess.run([sys.executable, str(BOARD), "--version"], capture_output=True, text=True)
     assert result.returncode == 0
-    assert result.stdout.strip() == "0.2.0"
+    assert result.stdout.strip() == "0.3.0"
 
 
 def test_missing_start_time_is_unknown_not_1970(tmp_path):

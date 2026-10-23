@@ -54,7 +54,7 @@ import tomllib
 from datetime import datetime
 from pathlib import Path
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 RESET = "\033[0m"
 NEVER = re.compile(r"(?!)")

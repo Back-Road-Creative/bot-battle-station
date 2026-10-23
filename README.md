@@ -28,7 +28,7 @@ python3 bin/session-board.py            # your sessions: open http://localhost:8
 python3 bin/session-board.py            # web page on 127.0.0.1:8765 (--port to change)
 python3 bin/session-board.py --tui      # full-screen terminal board, q quits
 python3 bin/session-board.py --once     # one plain text frame (pipes, tests)
-python3 bin/session-board.py --demo     # five invented sessions in a temp dir
+python3 bin/session-board.py --demo     # five invented sessions; temp files removed on exit
 python3 bin/session-board.py --doctor   # what it found to read: counts and key names, no values
 ```
 
@@ -36,6 +36,9 @@ Other options: `--interval` sets the refresh time in seconds; `--claude-dir` and
 `--codex-dir` select the session directories; `--config` selects the TOML file;
 `--roster` selects the session-name list; and `--waits-log` and `--alerts-log`
 select the local JSONL logs. Run `python3 bin/session-board.py --help` for defaults.
+`--version` prints the board release version. A malformed TOML config produces
+a one-line error with exit code 2. A session with no start time shows "unknown"
+instead of a 1970 uptime.
 
 Under WSL, a Windows browser opens it at `http://localhost:8765`.
 
@@ -167,6 +170,8 @@ powershell.exe -ExecutionPolicy Bypass -File "$(wslpath -w bin/session-board-kio
 - **Transcript text is untrusted.** The page writes every value with `textContent` and makes no
   outside requests.
 - **Logs stay local**: one JSON line per NEEDS YOU spell and per warning, in `state_dir`.
+  Wait history keeps at most the first 240 characters of each ask. Those
+  characters may still be sensitive; keep the state directory private.
 - **`--doctor`** prints counts, registry key names and Claude Code versions, never a path, name,
   id or text, so its output can go in a bug report.
 

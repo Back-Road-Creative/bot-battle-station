@@ -51,6 +51,8 @@ import tomllib
 from datetime import datetime
 from pathlib import Path
 
+__version__ = "0.2.0"
+
 RESET = "\033[0m"
 NEVER = re.compile(r"(?!)")
 PLAN_RE = re.compile(rb"(?!)")  # set by configure() from plan_dirs
@@ -451,7 +453,7 @@ def main_root(path: Path) -> Path:
         if git.is_file():
             target = git.read_text(encoding="utf-8").partition("gitdir:")[2].strip()
             return Path(target).parents[2] if "/worktrees/" in target else base
-        if git.is_dir():
+        if git.is_dir() and (git / "HEAD").is_file():
             return base
     return path
 
@@ -611,7 +613,7 @@ class Board:
             if info.get("version"):
                 self.versions.add(str(info["version"]))
             out.append(info)
-        return sorted(out, key=lambda s: s.get("startedAt", 0))
+        return sorted(out, key=lambda s: (not s.get("startedAt"), s.get("startedAt") or 0))
 
     def agent_history(self) -> dict[str, list[float]]:
         """Run times of finished sub-agents by type, newest AGENT_HISTORY_CAP; built once."""
@@ -646,11 +648,14 @@ class Board:
                 if sid.startswith(prefix):
                     name, role = roster[prefix]
                     break
-            started = info.get("startedAt", 0) / 1000
+            started_ms = info.get("startedAt")
+            started_unknown = not isinstance(started_ms, (int, float)) or started_ms <= 0
+            started = now if started_unknown else started_ms / 1000
             jobs = self.jobs(tr, sid, started, now, None if kids is None else kids.get(info.get("pid"), []))
             cwd = Path(info.get("cwd") or ".")
             rows.append({"name": name, "role": role, "sid": sid[:8], "status": info.get("status", "?"),
-                         "uptime": now - started, "tr": tr, "jobs": jobs, "plan": self.plan(tr, cwd),
+                         "uptime": now - started, "started_unknown": started_unknown,
+                         "tr": tr, "jobs": jobs, "plan": self.plan(tr, cwd),
                          "plan_title": next(filter(None, map(plan_title, self.plan_paths(tr, cwd))), ""),
                          "waiting_for": str(info.get("waitingFor") or ""), "tokens": self.tokens(tr, now)})
         fulls = [t.full for t in self.transcripts.values() if t.full]
@@ -983,7 +988,7 @@ def card(row: dict, width: int, now: float, color: bool) -> list[str]:
     tr = row["tr"]
     prs = list(tr.prs.values())
     pr_txt = (" · PR " + " ".join(prs[-3:]) + (f" +{len(prs) - 3}" if len(prs) > 3 else "")) if prs else ""
-    meta = f"⎇ {tr.branch or '?'} · up {fmt_dur(row['uptime'])}{pr_txt}"
+    meta = f"⎇ {tr.branch or '?'} · up {'unknown' if row.get('started_unknown') else fmt_dur(row['uptime'])}{pr_txt}"
     title = row_topic(row) or "—"
     meta = clip(meta, max(inner - min(len(title), 40) - 2, 10))
     title = clip(title, inner - len(meta) - 2)
@@ -1128,8 +1133,9 @@ def row_json(row: dict, now: float) -> dict:
     plan = row.get("plan")
     return {
         "bot": "claude", "name": row["name"], "role": row["role"], "sid": row["sid"], "state": status_of(row)[0],
-        "eta": row["eta"], "progress": row["progress"], "started": now - row["uptime"],
-        "uptime": fmt_dur(row["uptime"]),
+        "eta": row["eta"], "progress": row["progress"],
+        "started": None if row.get("started_unknown") else now - row["uptime"],
+        "uptime": "unknown" if row.get("started_unknown") else fmt_dur(row["uptime"]),
         "title": row_topic(row), "topic": row_topic(row), "next": next_step(tr.summary),
         "started_as": tr.title, "plan_title": row.get("plan_title", ""), "ask": what if kind == "you" else "",
         "waits_on": what if kind == "session" else "",
@@ -1212,7 +1218,8 @@ class WaitLog:
         asking = {r["sid"]: r for r in rows if r["state"] == "NEEDS YOU"}
         for sid, r in asking.items():
             if sid not in self.open:
-                self.open[sid] = {"sid": sid, "name": r["name"], "ask": r["ask"], "start": now - (r["waited"] or 0)}
+                self.open[sid] = {"sid": sid, "name": r["name"], "ask": str(r["ask"])[:240],
+                                  "start": now - (r["waited"] or 0)}
         for sid in [sid for sid in self.open if sid not in asking]:
             rec = self.open.pop(sid)
             rec.update(end=now, secs=round(now - rec["start"], 1))
@@ -1507,13 +1514,14 @@ def configure(path: Path | None) -> dict:
     base = main_root(path.resolve().parent) if path and path.is_file() else Path.cwd()
     state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "bot-battle-station"
     return {"roster": base / cfg["roster"] if cfg.get("roster") else None,
-            "state_dir": base / cfg["state_dir"] if cfg.get("state_dir") else state,
+            "state_dir": base / Path(cfg["state_dir"]).expanduser() if cfg.get("state_dir") else state,
             "claude_limits": base / Path(cfg["claude_limits"]).expanduser() if cfg.get("claude_limits") else None,
             "plan_dirs": list(PLAN_DIRS)}
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--version", action="version", version=__version__)
     ap.add_argument("--once", action="store_true", help="print one plain frame and exit")
     ap.add_argument("--tui", action="store_true", help="full-screen terminal board instead of the web page")
     ap.add_argument("--port", type=int, default=8765, help="web page port on 127.0.0.1 (default 8765)")
@@ -1538,14 +1546,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.demo:
         import tempfile
         global proc_children, loadavg, codex_open_files
-        root = Path(tempfile.mkdtemp(prefix="board-demo-"))
-        cfg, args.claude_dir, args.codex_dir = configure(None), demo_box(root), root / "codex"
-        cfg["state_dir"], cfg["roster"] = root / "state", None
-        codex_open_files = lambda: None  # noqa: E731 - no process holds the demo's rollout; its age says live
-        proc_children = lambda: None  # noqa: E731 - the demo's jobs have no processes; trust the transcript
-        loadavg = lambda: DEMO_LOAD  # noqa: E731 - a screenshot shows a made-up load, not this box's
+        with tempfile.TemporaryDirectory(prefix="board-demo-") as demo_dir:
+            root = Path(demo_dir)
+            cfg, args.claude_dir, args.codex_dir = configure(None), demo_box(root), root / "codex"
+            cfg["state_dir"], cfg["roster"] = root / "state", None
+            codex_open_files = lambda: None  # noqa: E731 - no process holds the demo's rollout; its age says live
+            proc_children = lambda: None  # noqa: E731 - the demo's jobs have no processes; trust the transcript
+            loadavg = lambda: DEMO_LOAD  # noqa: E731 - a screenshot shows a made-up load, not this box's
+            return run_board(args, cfg)
     else:
-        cfg = configure(args.config)
+        try:
+            cfg = configure(args.config)
+        except tomllib.TOMLDecodeError as exc:
+            print(f"session board: invalid config {args.config}: {exc}", file=sys.stderr)
+            return 2
+    return run_board(args, cfg)
+
+
+def run_board(args: argparse.Namespace, cfg: dict) -> int:
+    """Run the selected board view while any demo fixture directory is still open."""
     board = Board(args.claude_dir, args.roster or cfg["roster"], args.codex_dir,
                   cfg["claude_limits"] or cfg["state_dir"] / "claude-limits.json")
     args.waits_log = args.waits_log or cfg["state_dir"] / "waits.jsonl"

@@ -15,6 +15,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Let keyboard users open tiles and requests and keep focus during refreshes;
   keep long requests inside the phone-width alert banner.
 
+### Fixed
+
+- Bound ask text saved in local wait history to a 240-character preview.
+- Show unknown start times honestly, expand configured home paths, and report
+  malformed TOML without a traceback. Ignore unrelated empty `.git` directories
+  when locating a config checkout. Add a `--version` CLI option.
+- Remove temporary demo session files when the board exits.
+
 ## 0.2.0
 
 ### Added

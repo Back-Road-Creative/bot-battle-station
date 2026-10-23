@@ -38,6 +38,7 @@ its % done. A watcher (the Monitor tool, a `watch_commands` match) has no ETA.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import math
 import os
@@ -67,6 +68,33 @@ HOUR = 60  # minutes on the timeline strip
 PROC = Path("/proc")  # Linux's process table; where it is missing, liveness falls back to signal 0
 TESTED = (2, 1)  # newest Claude Code major.minor whose files this board was checked against
 PLAN_MIN_MENTIONS = 3  # fewer is a passing reference, not the plan the session executes
+LOG_LINE_MAX_BYTES = 8192  # keep each persisted wait/warning record bounded
+
+
+def append_jsonl(path: Path, rec: dict, max_bytes: int = LOG_LINE_MAX_BYTES) -> bool:
+    """Append one bounded UTF-8 line, rolling back a short write under the file lock."""
+    try:
+        line = (json.dumps(rec, ensure_ascii=False) + "\n").encode("utf-8")
+        if len(line) > max_bytes:
+            return False
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            before = os.fstat(fd).st_size
+            try:
+                written = os.write(fd, line)
+            except OSError:
+                os.ftruncate(fd, before)
+                return False
+            if written != len(line):
+                os.ftruncate(fd, before)
+                return False
+            return True
+        finally:
+            os.close(fd)
+    except (OSError, TypeError, ValueError, UnicodeError):
+        return False
 
 
 def parse_ts(value) -> float | None:
@@ -1236,12 +1264,7 @@ class WaitLog:
             rec.update(end=now, secs=round(now - rec["start"], 1))
             self.done.append(rec)
             if self.path:
-                try:
-                    self.path.parent.mkdir(parents=True, exist_ok=True)
-                    with self.path.open("a", encoding="utf-8") as fh:
-                        fh.write(json.dumps(rec) + "\n")
-                except OSError:
-                    pass  # the board still shows; only the history is lost
+                append_jsonl(self.path, rec)  # the board still shows if history cannot be saved
 
     def stats(self, now: float) -> dict:
         midnight = datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
@@ -1290,12 +1313,7 @@ class AlertLog:
                        end_reason="condition_cleared" if rec["sid"] in visible else "session_not_visible")
             self.done.append(rec)
             if self.path:
-                try:
-                    self.path.parent.mkdir(parents=True, exist_ok=True)
-                    with self.path.open("a", encoding="utf-8") as fh:
-                        fh.write(json.dumps(rec) + "\n")
-                except OSError:
-                    pass  # the board still shows; only the history is lost
+                append_jsonl(self.path, rec)  # the board still shows if history cannot be saved
 
     def stats(self, now: float, waits: list[dict], rows: list[dict]) -> dict:
         """Today: per kind count / median / % followed by NEEDS YOU within 10 min, and where the time goes."""

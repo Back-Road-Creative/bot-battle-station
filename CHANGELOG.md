@@ -16,6 +16,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   warnings by observed ending reason, preserving older records as unknown.
 - Explain mixed Claude Code and Codex counts in the header and legend, show
   total context in use, and count duplicate session records only once.
+- Apply `--interval` to web polling as well as the terminal view, reject unsafe
+  interval values, and include Codex and limits source counts in `--doctor`.
 - Keep board tiles readable on narrow screens and under reduced motion, with
   clearer muted text and stale-state styling.
 - Let keyboard users open tiles and requests and keep focus during refreshes;

@@ -13,8 +13,9 @@ It spends no tokens. It reads only the files Claude Code already writes.
 
 ## Try it
 
-Python 3.11 or newer, standard library only. Linux and WSL are what it is built and tested on;
-macOS works without the `/proc` checks (below). Windows-native Claude Code is not covered.
+Python 3.11 or newer, standard library only. CI tests Linux and macOS;
+macOS uses the process-liveness fallback without `/proc` (below). Windows-native
+Claude Code is not covered.
 
 ```bash
 git clone https://github.com/Back-Road-Creative/bot-battle-station.git
@@ -49,6 +50,9 @@ its topic (Claude Code's own away summary, else its plan's heading, else its tit
 bars against their usual length, four dials (share of the last hour spent working, PRs it
 linked, pace against its own usual, tokens today), an hour strip and a context gauge. Click a
 tile or press 1-9 for the full view; `?` opens a legend that says how every number is computed.
+Keyboard users can Tab to tiles and requests, press Enter or Space to open them, and use the
+Close button or Esc to return to the tile. Focus stays on the control during refreshes.
+Tiles reflow on narrow screens, and the board respects the system's reduced-motion setting.
 
 | State | When | What you do |
 |---|---|---|

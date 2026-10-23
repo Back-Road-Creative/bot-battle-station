@@ -81,6 +81,10 @@ The header carries a DEFCON ladder:
 ACKNOWLEDGE (or Esc) clears the takeover until another session starts asking; `/?ack` opens
 with the asks already up acknowledged. Browsers play no sound before a click, so the siren is off
 until you press ARM SIREN once.
+Use **SNOOZE 15m** beside one request to pause its takeover, siren, and desktop notification
+for 15 minutes. The request stays in the red strip and session tile; other requests still alert.
+The choice survives a page reload in this browser. **UNSNOOZE** restores its alert early, and
+an unanswered request alerts again when the timer expires.
 
 ETAs are medians of what already finished on your machine: a helper agent against finished
 agents of its type, a test run against finished runs of its kind, a plan against the session's

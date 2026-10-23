@@ -18,6 +18,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   total context in use, and count duplicate session records only once.
 - Apply `--interval` to web polling as well as the terminal view, reject unsafe
   interval values, and include Codex and limits source counts in `--doctor`.
+- Add a bounded `--write-limits` status-line helper that atomically saves only
+  Claude's supported usage-window fields in a private file.
 - Keep board tiles readable on narrow screens and under reduced motion, with
   clearer muted text and stale-state styling.
 - Let keyboard users open tiles and requests and keep focus during refreshes;

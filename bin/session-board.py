@@ -46,6 +46,7 @@ import select
 import shutil
 import statistics
 import sys
+import tempfile
 import time
 import tomllib
 from datetime import datetime
@@ -1491,6 +1492,69 @@ def demo_box(root: Path) -> Path:
 
 
 DOCTOR_KEYS = ("pid", "sessionId", "procStart", "status", "startedAt", "name", "cwd", "version")
+STATUS_INPUT_MAX = 1_048_576
+
+
+def finite_json_number(value) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:  # a JSON integer too large to convert to float
+        return False
+
+
+def write_limits(stream, path: Path) -> bool:
+    """Save only Claude's supported rate-limit fields from a status-line JSON object.
+
+    No rate_limits field means this status update has nothing to save. A successful
+    update replaces the old file atomically with a private file.
+    """
+    raw = stream.read(STATUS_INPUT_MAX + 1)
+    if len(raw) > STATUS_INPUT_MAX:
+        raise ValueError("status-line input too large")
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError("status-line input must be an object")
+    rates = payload.get("rate_limits")
+    if rates is None:
+        return False
+    if not isinstance(rates, dict):
+        raise ValueError("rate_limits must be an object")
+    windows = {}
+    for key, _ in CLAUDE_WINDOWS:
+        if key not in rates:
+            continue
+        window = rates[key]
+        if not isinstance(window, dict):
+            raise ValueError("rate-limit window must be an object")
+        fields = {name: window[name] for name in ("used_percentage", "resets_at") if name in window}
+        used = fields.get("used_percentage")
+        if "used_percentage" in fields and not finite_json_number(used):
+            raise ValueError("invalid rate-limit percentage")
+        reset = fields.get("resets_at")
+        if reset is not None and not (isinstance(reset, str) and parse_ts(reset) is not None
+                                      or finite_json_number(reset)):
+            raise ValueError("invalid rate-limit reset")
+        if fields:
+            windows[key] = fields
+    if not windows:
+        return False
+    encoded = (json.dumps(windows, separators=(",", ":"), allow_nan=False) + "\n").encode()
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="wb", prefix=".claude-limits-", suffix=".tmp",
+                                         dir=path.parent, delete=False) as file:
+            temporary = Path(file.name)
+            file.write(encoded)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return True
 
 
 def doctor(claude_dir: Path, codex_dir: Path | None = None, limits_file: Path | None = None) -> list[str]:
@@ -1584,18 +1648,30 @@ def main(argv: list[str] | None = None) -> int:
                     help="where each warning spell is logged (default: alerts.jsonl next to the waits log)")
     ap.add_argument("--demo", action="store_true", help="show made-up sessions in every state, not this box's")
     ap.add_argument("--doctor", action="store_true", help="print what the board finds to read (no values) and exit")
+    ap.add_argument("--write-limits", action="store_true",
+                    help="read status-line JSON on stdin and privately update Claude's limits file")
     args = ap.parse_args(argv)
-    if args.doctor:
+    if args.doctor or args.write_limits:
         try:
             cfg = configure(args.config)
         except tomllib.TOMLDecodeError as exc:
             print(f"session board: invalid config {args.config}: {exc}", file=sys.stderr)
             return 2
+        limits_file = cfg["claude_limits"] or cfg["state_dir"] / "claude-limits.json"
+        if args.write_limits:
+            try:
+                write_limits(sys.stdin.buffer, limits_file)
+            except (ValueError, UnicodeError):
+                print("session board: invalid status-line limits JSON", file=sys.stderr)
+                return 2
+            except OSError:
+                print("session board: could not write limits file", file=sys.stderr)
+                return 2
+            return 0
         print("\n".join(doctor(args.claude_dir, args.codex_dir,
-                               cfg["claude_limits"] or cfg["state_dir"] / "claude-limits.json")))
+                               limits_file)))
         return 0
     if args.demo:
-        import tempfile
         global proc_children, loadavg, codex_open_files
         with tempfile.TemporaryDirectory(prefix="board-demo-") as demo_dir:
             root = Path(demo_dir)

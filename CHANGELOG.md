@@ -10,6 +10,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Clarify command options, local state paths, board actions, and the loopback
   server's security scope in the documentation.
+- Show the number of finished runs behind each job's ETA in its tooltip; say
+  when a job has no run history and no ETA yet.
 - Keep board tiles readable on narrow screens and under reduced motion, with
   clearer muted text and stale-state styling.
 - Let keyboard users open tiles and requests and keep focus during refreshes;

@@ -814,7 +814,7 @@ class Board:
                     rem, late = rem or None, False
                 jobs.append({"kind": job["kind"], "label": job["label"], "done": done, "start": job["start"],
                              "status": "ended without notice" if tid in gone else job["status"], "elapsed": elapsed, "eta": rem, "late": late,
-                             "typical": statistics.median(hist) if hist else None})
+                             "typical": statistics.median(hist) if hist else None, "runs": len(hist)})
         sub_dir = tr.path.with_suffix("") / "subagents"
         for meta_path in sorted(sub_dir.glob("*.meta.json")):
             log = meta_path.with_name(meta_path.name.replace(".meta.json", ".jsonl"))
@@ -832,7 +832,7 @@ class Board:
             jobs.append({"kind": "agent", "type": meta.get("agentType", "agent"), "label": meta.get("description", ""),
                          "done": done, "start": start, "status": "done" if done else "running", "elapsed": elapsed,
                          "eta": rem, "late": late, "now": "" if done else last_action(log),
-                         "typical": statistics.median(hist) if hist else None,
+                         "typical": statistics.median(hist) if hist else None, "runs": len(hist),
                          "stalled": not done and now - mtime > 1200})
         return jobs
 
@@ -1153,7 +1153,8 @@ def row_json(row: dict, now: float) -> dict:
         "jobs": [{"kind": j["kind"], "label": j["label"] + (f" — {j['now']}" if j.get("now") else ""),
                   "watch": j["kind"] in QUIET, "late": bool(j["late"] or j.get("stalled")),
                   "stalled": bool(j.get("stalled")), "when": when(j), **({"type": j["type"]} if j.get("type") else {}),
-                  "frac": j["elapsed"] / j["typical"] if j.get("typical") else None} for j in running],
+                  "frac": j["elapsed"] / j["typical"] if j.get("typical") else None,
+                  **({"runs": j.get("runs", 0)} if j["kind"] not in QUIET else {})} for j in running],
     }
 
 

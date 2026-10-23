@@ -11,6 +11,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Clarify command options, local state paths, board actions, and the loopback
   server's security scope in the documentation.
 
+### Fixed
+
+- Bound ask text saved in local wait history to a 240-character preview.
+
 ## 0.2.0
 
 ### Added

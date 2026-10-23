@@ -163,6 +163,8 @@ powershell.exe -ExecutionPolicy Bypass -File "$(wslpath -w bin/session-board-kio
 - **Transcript text is untrusted.** The page writes every value with `textContent` and makes no
   outside requests.
 - **Logs stay local**: one JSON line per NEEDS YOU spell and per warning, in `state_dir`.
+  Wait history keeps at most the first 240 characters of each ask. Those
+  characters may still be sensitive; keep the state directory private.
 - **`--doctor`** prints counts, registry key names and Claude Code versions, never a path, name,
   id or text, so its output can go in a bug report.
 

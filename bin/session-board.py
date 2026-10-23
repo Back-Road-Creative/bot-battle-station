@@ -1212,7 +1212,8 @@ class WaitLog:
         asking = {r["sid"]: r for r in rows if r["state"] == "NEEDS YOU"}
         for sid, r in asking.items():
             if sid not in self.open:
-                self.open[sid] = {"sid": sid, "name": r["name"], "ask": r["ask"], "start": now - (r["waited"] or 0)}
+                self.open[sid] = {"sid": sid, "name": r["name"], "ask": str(r["ask"])[:240],
+                                  "start": now - (r["waited"] or 0)}
         for sid in [sid for sid in self.open if sid not in asking]:
             rec = self.open.pop(sid)
             rec.update(end=now, secs=round(now - rec["start"], 1))

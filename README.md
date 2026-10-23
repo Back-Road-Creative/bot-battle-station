@@ -31,6 +31,11 @@ python3 bin/session-board.py --demo     # five invented sessions in a temp dir
 python3 bin/session-board.py --doctor   # what it found to read: counts and key names, no values
 ```
 
+Other options: `--interval` sets the refresh time in seconds; `--claude-dir` and
+`--codex-dir` select the session directories; `--config` selects the TOML file;
+`--roster` selects the session-name list; and `--waits-log` and `--alerts-log`
+select the local JSONL logs. Run `python3 bin/session-board.py --help` for defaults.
+
 Under WSL, a Windows browser opens it at `http://localhost:8765`.
 
 ## What it shows
@@ -42,12 +47,12 @@ bars against their usual length, four dials (share of the last hour spent workin
 linked, pace against its own usual, tokens today), an hour strip and a context gauge. Click a
 tile or press 1-9 for the full view; `?` opens a legend that says how every number is computed.
 
-| State | When |
-|---|---|
-| NEEDS YOU | Claude Code says the session is `waiting` (a permission prompt, a question, a plan to approve), or a line of its last reply matches one of your `ask_commands` |
-| RUNNING | Claude Code says `busy` |
-| WAITING ON JOB | a background command, watcher or helper agent is still running |
-| IDLE | anything else |
+| State | When | What you do |
+|---|---|---|
+| NEEDS YOU | Claude Code says the session is `waiting` (a permission prompt, a question, a plan to approve), or a line of its last reply matches one of your `ask_commands` | Open the session and answer its pending request. |
+| RUNNING | Claude Code says `busy` | Let it work. |
+| WAITING ON JOB | a background command, watcher or helper agent is still running | Check the job if its usual time has passed. |
+| IDLE | anything else | Open it if you expected work to continue. |
 
 The header carries a DEFCON ladder:
 
@@ -75,6 +80,11 @@ times; its steps are the rows of a table with a Status column, or `- [ ]` / `- [
 Without a config the board is neutral: only Claude Code's own prompt state is red, only the
 Monitor tool counts as a watcher, no plans are read. To fit your own workflow, put a
 `session-board.toml` beside the script (or pass `--config`):
+
+Relative `roster` and `state_dir` paths in that file resolve from the main checkout
+holding the config, even when the board runs from a worktree. Without a
+`state_dir` setting, local logs use `$XDG_STATE_HOME/bot-battle-station`, or
+`~/.local/state/bot-battle-station` when that variable is unset.
 
 ```toml
 # a reply line matching one of these means the session waits on you to run something
@@ -142,7 +152,8 @@ powershell.exe -ExecutionPolicy Bypass -File "$(wslpath -w bin/session-board-kio
 
 ## Privacy and safety
 
-- **No tokens, no network, no subprocess.** It reads `~/.claude/sessions/*.json`, the session
+- **No model tokens, outbound requests, or subprocesses.** It serves the page
+  over a loopback HTTP connection and reads `~/.claude/sessions/*.json`, the session
   transcripts and the helper-agent metadata, and only the bytes appended since the last poll;
   for Codex, the end of each live rollout file (re-read only when it changes) and its thread
   names, never its `auth.json`.

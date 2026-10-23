@@ -32,7 +32,8 @@ saw: code, command output, secrets pasted into a prompt. So it:
   `localhost`, `127.0.0.1` or `[::1]` (a DNS-rebinding guard);
 - treats transcript text as untrusted, writing it into the page with
   `textContent` only;
-- makes no network request and starts no process.
+- serves a loopback HTTP server, makes no outbound network requests, and starts
+  no subprocess.
 
 A way for another web page, another local user, or text inside a transcript to
 read the board's data, run script in the page, or make the board act is in

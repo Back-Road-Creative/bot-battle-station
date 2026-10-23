@@ -131,12 +131,15 @@ header {
 .lim.hot i { background: linear-gradient(90deg, var(--red) var(--u), rgba(80, 100, 140, .22) 0); }
 #grid.stale { filter: grayscale(.65); outline: 2px dashed var(--amber); outline-offset: -2px; }
 #needs .lbl { font: 700 15px var(--mono); letter-spacing: .18em; color: #fff; text-shadow: 0 0 12px var(--red); }
-.ask { display: flex; gap: 8px; align-items: baseline; max-width: 520px; padding: 7px 12px; cursor: pointer;
+.ask { display: flex; gap: 8px; align-items: baseline; min-width: 0; max-width: 520px; padding: 7px 12px; cursor: pointer;
   background: rgba(255, 40, 60, .22); border: 1px solid var(--red); border-radius: 4px; }
 .ask:hover { background: rgba(255, 40, 60, .38); }
-.ask b { font: 700 13px var(--mono); color: #fff; white-space: nowrap; }
-.ask span { font-size: 13px; color: #ffd6db; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ask em { font: 600 12px var(--mono); font-style: normal; color: #ff8a98; white-space: nowrap; }
+.ask:focus-visible, #alert .who [role="button"]:focus-visible, .close:focus-visible {
+  outline: 3px solid var(--mint); outline-offset: 3px;
+}
+.ask b { font: 700 13px var(--mono); color: #fff; white-space: nowrap; max-width: 30%; overflow: hidden; text-overflow: ellipsis; }
+.ask span { min-width: 0; flex: 1; font-size: 13px; color: #ffd6db; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ask em { flex: none; font: 600 12px var(--mono); font-style: normal; color: #ff8a98; white-space: nowrap; }
 
 main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 16px; padding: 16px 24px 40px; }
 .tile {
@@ -147,6 +150,7 @@ main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 
   transition: transform .15s;
 }
 .tile:hover { transform: translateY(-2px); }
+.tile:focus-visible { box-shadow: inset 0 0 0 3px var(--mint); }
 .tile.enter { animation: enter .5s ease-out; }
 .tile.changed { animation: edge 1.2s ease-in-out 2; }
 .tile.flash { animation: done 1.6s ease-out; }
@@ -241,6 +245,7 @@ main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 
 .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; }
 .legend i.w { background: var(--cyan); } .legend i.j { background: var(--amber); } .legend i.y { background: rgba(217, 196, 90, .6); }
 .close { position: absolute; top: 14px; right: 22px; font: 12px var(--mono); color: var(--muted); }
+.close { cursor: pointer; background: var(--bg); border: 1px solid var(--slate); padding: 4px 8px; }
 .empty { grid-column: 1 / -1; text-align: center; padding: 80px; font: 14px var(--mono); letter-spacing: .3em; color: var(--muted); }
 .hint { font: 11px var(--mono); color: var(--muted); padding: 0 24px 20px; }
 @media (max-width: 500px) {
@@ -250,6 +255,7 @@ main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 
   .right { margin-left: 0; }
   main { padding: 12px 16px 32px; }
   #needs, #link, #bots, #untested { margin-left: 16px; margin-right: 16px; }
+  .ask { flex: 1 1 100%; width: 100%; }
   .hint { padding: 0 16px 20px; }
 }
 </style>
@@ -268,8 +274,8 @@ main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 
 <div id="bots" title="Each bot's live sessions and usage limits. Codex limits come from its own session files; Claude's from the file your status line writes (see the README)."></div>
 <div id="needs"></div>
 <main id="grid"></main>
-<div class="hint">Click a tile or press 1-9 for the full view · Esc closes</div>
-<div id="focus"></div>
+<div class="hint">Select a tile or press 1-9 for the full view · Esc closes</div>
+<div id="focus" role="dialog" aria-modal="true" aria-label="Session details"></div>
 <div id="legend"><div>
   <div id="today"></div>
   <h3>DEFCON: the box's level, worst first</h3>
@@ -307,6 +313,16 @@ const seen = new Map();   // sid -> {state, jobs, pct}: what the last poll showe
 let data = null, at = 0, focusSid = location.hash.slice(1) || null, first = true;   // #<sid> opens that session
 
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+function action(node, label, run) {
+  node.tabIndex = 0;
+  node.setAttribute("role", "button");
+  node.setAttribute("aria-label", label);
+  node.onclick = run;
+  node.onkeydown = e => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); run(); }
+  };
+  return node;
+}
 const dur = s => s == null ? "?" : s < 60 ? `${Math.max(0, Math.floor(s))}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h${String(Math.floor(s % 3600 / 60)).padStart(2, "0")}m`;
 const clock = t => new Date(t * 1000).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
 const tokens = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : Math.round(n / 1e3) + "k";
@@ -391,6 +407,7 @@ function tile(s, big) {
   else if (!big && was && s.jobs.length < was.jobs) motion = " flash";
   const warn = s.warn.length && s.state !== "NEEDS YOU";
   const t = el("div", "tile " + cls(s) + motion + (warn ? " warn" : ""));
+  t.dataset.sid = s.sid;
   const top = el("div", "top");
   top.append(el("span", "bot " + s.bot, s.bot === "codex" ? "CODEX" : "CLAUDE"), el("span", "name", s.name),
     el("span", "sid", s.sid), el("span", "state", s.state));
@@ -416,17 +433,27 @@ function tile(s, big) {
     if (about.length) t.append(el("div", "meta", about.join(" · ")));
     const prs = s.prs.length ? ` · PRs ${s.prs.join(" ")}` : "";
     t.append(el("div", "meta", `branch ${s.branch || "?"} · up ${s.uptime} · ${s.finished} jobs finished${prs} · ETA ${s.eta}`));
-    const close = el("div", "close", "ESC ✕"); t.append(close);
+    const close = el("button", "close", "Close (Esc)");
+    close.type = "button"; close.setAttribute("aria-label", "Close session details"); t.append(close);
   }
-  t.onclick = big ? null : () => openFocus(s.sid);
+  if (!big) action(t, `Open ${s.name} session details`, () => openFocus(s.sid));
   return t;
 }
 
 function openFocus(sid) { focusSid = sid; history.replaceState(null, "", "#" + sid); renderFocus(); }
+function closeFocus() {
+  const sid = focusSid;
+  focusSid = null;
+  renderFocus();
+  const compact = [...document.getElementById("grid").children].find(t => t.dataset.sid === sid);
+  compact?.focus({preventScroll: true});
+}
 function renderFocus() {
   const box = document.getElementById("focus"), s = data && data.sessions.find(x => x.sid === focusSid);
   if (!s) { box.className = ""; box.replaceChildren(); focusSid = null; if (location.hash) history.replaceState(null, "", location.pathname); return; }
+  const shouldFocusClose = box.className !== "on" || document.activeElement?.className === "close";
   box.className = "on"; box.replaceChildren(tile(s, true));
+  if (shouldFocusClose) box.querySelector(".close")?.focus({preventScroll: true});
 }
 
 function header(rows) {
@@ -480,13 +507,16 @@ function dayStats() {   // the day's warning stats, from alerts.jsonl and waits.
 
 function needs(rows) {
   const box = document.getElementById("needs"), waiting = rows.filter(s => s.state === "NEEDS YOU");
+  const activeSid = document.activeElement?.className === "ask" ? document.activeElement.dataset.sid : null;
   document.title = waiting.length ? `⚠ (${waiting.length}) needs you · Battle Station` : "Battle Station";   // shows in the tab
   if (!waiting.length) { box.replaceChildren(); return; }
   box.replaceChildren(el("span", "lbl", `⚠ ${waiting.length} WAITING ON YOU ▸`), ...waiting.map(s => {
-    const a = el("div", "ask"); a.onclick = () => openFocus(s.sid);
+    const a = action(el("div", "ask"), `Open ${s.name} request`, () => openFocus(s.sid));
+    a.dataset.sid = s.sid;
     a.append(el("b", null, s.name), el("span", null, s.ask || s.topic || ""), el("em", null, s.waited != null ? `waiting ${dur(s.waited)}` : ""));
     a.title = s.ask || ""; return a;
   }));
+  if (activeSid) [...box.children].find(a => a.dataset.sid === activeSid)?.focus({preventScroll: true});
 }
 
 // The alarm. Off-screen sound needs a click first (browser rule), so the siren is opt-in and remembered.
@@ -555,15 +585,21 @@ function alarm(rows) {
   shown = now;
   ladder(data.defcon.level, data.defcon.why);
   const box = document.getElementById("alert"), loud = waiting.some(s => !acked.has(s.sid));
+  const activeSid = document.activeElement?.className === "alert-request" ? document.activeElement.dataset.sid : null;
+  const activeAck = document.activeElement?.textContent === "ACKNOWLEDGE";
   if (!loud) { box.className = ""; box.replaceChildren(); return; }
   const btn = el("button", null, "ACKNOWLEDGE"); btn.onclick = acknowledge;
   box.replaceChildren(el("div", "big", `⚠ ${waiting.length} NEED${waiting.length === 1 ? "S" : ""} YOU`),
     el("div", "who"), btn, el("div", "hint", "Esc or ACKNOWLEDGE silences this until another session needs you"));
   box.children[1].append(...waiting.map(s => {
-    const r = el("div"); r.append(el("b", null, s.name), document.createTextNode(s.ask || s.topic || ""));
-    r.title = s.ask || ""; r.onclick = () => { acknowledge(); openFocus(s.sid); }; return r;
+    const r = action(el("div", "alert-request"), `Open ${s.name} request`, () => { acknowledge(); openFocus(s.sid); });
+    r.dataset.sid = s.sid;
+    r.append(el("b", null, s.name), document.createTextNode(s.ask || s.topic || ""));
+    r.title = s.ask || ""; return r;
   }));
   box.className = "on";
+  if (activeSid) [...box.children[1].children].find(r => r.dataset.sid === activeSid)?.focus({preventScroll: true});
+  else if (activeAck) btn.focus({preventScroll: true});
   if (fresh.length) {
     if ("Notification" in window && Notification.permission === "granted")
       for (const s of fresh) try { new Notification(`⚠ ${s.name} needs you`, {body: s.ask || "", tag: s.sid, requireInteraction: true}); } catch (e) { /* not allowed here */ }
@@ -596,7 +632,10 @@ function render() {
   header(rows); needs(rows); alarm(rows); bots(data.bots);
   document.getElementById("untested").textContent = (data.untested || []).length
     ? `Claude Code ${data.untested.join(", ")} is newer than this board was checked against; if a number looks wrong, run --doctor` : "";
-  document.getElementById("grid").replaceChildren(...(rows.length ? rows.map(s => tile(s, false)) : [el("div", "empty", "NO OPEN SESSIONS")]));
+  const grid = document.getElementById("grid");
+  const activeSid = document.activeElement?.className?.split(" ").includes("tile") ? document.activeElement.dataset.sid : null;
+  grid.replaceChildren(...(rows.length ? rows.map(s => tile(s, false)) : [el("div", "empty", "NO OPEN SESSIONS")]));
+  if (activeSid) [...grid.children].find(t => t.dataset.sid === activeSid)?.focus({preventScroll: true});
   renderFocus();
   seen.clear();
   for (const s of rows) seen.set(s.sid, {state: s.state, jobs: s.jobs.length, pct: s.progress.pct});
@@ -654,13 +693,13 @@ async function tick() {
   }
 }
 
-document.getElementById("focus").onclick = e => { if (e.target.id === "focus" || e.target.className === "close") { focusSid = null; renderFocus(); } };
+document.getElementById("focus").onclick = e => { if (e.target.id === "focus" || e.target.className === "close") closeFocus(); };
 document.addEventListener("keydown", e => {
   const legend = document.getElementById("legend");
   if (e.key === "?") legend.classList.toggle("on");
   else if (e.key === "Escape" && document.getElementById("alert").classList.contains("on")) acknowledge();
   else if (e.key === "Escape" && legend.classList.contains("on")) legend.classList.remove("on");
-  else if (e.key === "Escape") { focusSid = null; renderFocus(); }
+  else if (e.key === "Escape") closeFocus();
   else if (/^[1-9]$/.test(e.key) && data) { const s = data.sessions[+e.key - 1]; if (s) openFocus(s.sid); }
 });
 setInterval(() => { document.getElementById("clock").textContent = new Date().toLocaleTimeString([], {hour12: false}); countdown(); }, 1000);

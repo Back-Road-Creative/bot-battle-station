@@ -46,6 +46,8 @@ its topic (Claude Code's own away summary, else its plan's heading, else its tit
 bars against their usual length, four dials (share of the last hour spent working, PRs it
 linked, pace against its own usual, tokens today), an hour strip and a context gauge. Click a
 tile or press 1-9 for the full view; `?` opens a legend that says how every number is computed.
+Keyboard users can Tab to tiles and requests, press Enter or Space to open them, and use the
+Close button or Esc to return to the tile. Focus stays on the control during refreshes.
 Tiles reflow on narrow screens, and the board respects the system's reduced-motion setting.
 
 | State | When | What you do |

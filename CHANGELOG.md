@@ -12,6 +12,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   server's security scope in the documentation.
 - Keep board tiles readable on narrow screens and under reduced motion, with
   clearer muted text and stale-state styling.
+- Let keyboard users open tiles and requests and keep focus during refreshes;
+  keep long requests inside the phone-width alert banner.
 
 ## 0.2.0
 

@@ -34,3 +34,8 @@ def test_reduced_motion_disables_all_decorative_animation():
 def test_stale_and_idle_tiles_keep_text_opacity():
     assert not re.search(r"#grid\.stale\s*\{[^}]*opacity:", HTML)
     assert not re.search(r"\.tile\.IDLE\s*\{[^}]*opacity:", HTML)
+
+
+def test_long_request_can_shrink_inside_a_phone_banner():
+    assert re.search(r"\.ask\s*\{[^}]*min-width:\s*0", HTML)
+    assert re.search(r"\.ask span\s*\{[^}]*min-width:\s*0", HTML)

@@ -39,10 +39,10 @@ def test_a_downloader_can_check_them_in_a_fresh_folder(tmp_path):
     assert check.stdout.count(": OK") == len(BOARD)
 
 
-def test_release_version_matches_top_changelog_entry():
-    top = next(line.removeprefix("## ") for line in (ROOT / "CHANGELOG.md").read_text(encoding="utf-8").splitlines()
-               if line.startswith("## "))
+def test_release_version_matches_latest_changelog_entry():
+    release = next(line.removeprefix("## ") for line in (ROOT / "CHANGELOG.md").read_text(encoding="utf-8").splitlines()
+                   if line.startswith("## ") and line != "## Unreleased")
     version = subprocess.run([sys.executable, str(ROOT / "bin/session-board.py"), "--version"],
                              capture_output=True, text=True, check=True).stdout.strip()
-    assert top == "0.3.0"
-    assert version == top
+    assert release == "0.3.0"
+    assert version == release

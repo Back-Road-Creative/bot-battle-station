@@ -14,6 +14,15 @@ def test_ci_exercises_linux_and_macos_with_bounded_jobs():
     assert "concurrency:" in ci
 
 
+def test_ci_checks_windows_kiosk_install_and_uninstall():
+    ci = (WORKFLOWS / "ci.yml").read_text()
+    assert "windows-latest" in ci
+    assert "tests/windows_kiosk_smoke.ps1" in ci
+    smoke = (WORKFLOWS.parent.parent / "tests/windows_kiosk_smoke.ps1").read_text()
+    assert "-Install" in smoke
+    assert "-Uninstall" in smoke
+
+
 def test_release_and_leak_scan_have_bounded_immutable_workflows():
     release = (WORKFLOWS / "release.yml").read_text()
     leak_scan = (WORKFLOWS / "leak-scan.yml").read_text()

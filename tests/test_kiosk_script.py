@@ -19,6 +19,7 @@ def test_launcher_validates_user_supplied_paths_and_has_uninstall():
 
 
 def test_existing_http_service_must_be_this_board():
+    assert '$url = "http://127.0.0.1:$Port/"' in SCRIPT
     assert "ConvertFrom-Json" in SCRIPT
     assert "$payload.api -eq 1" in SCRIPT
     assert "$null -ne $payload.sessions" in SCRIPT

@@ -22,7 +22,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $state = Join-Path $env:LOCALAPPDATA "SessionBoard"
-$url = "http://localhost:$Port/"
+$url = "http://127.0.0.1:$Port/"
 $lnk = Join-Path ([Environment]::GetFolderPath('Startup')) "Session Board.lnk"
 if ($Uninstall) {
   Remove-Item -LiteralPath $lnk -Force -ErrorAction SilentlyContinue

@@ -41,7 +41,7 @@ select the local JSONL logs. Run `python3 bin/session-board.py --help` for defau
 a one-line error with exit code 2. A session with no start time shows "unknown"
 instead of a 1970 uptime.
 
-Under WSL, a Windows browser opens it at `http://localhost:8765`.
+Under WSL, a Windows browser opens it at `http://127.0.0.1:8765`.
 
 ## Verify a release download
 

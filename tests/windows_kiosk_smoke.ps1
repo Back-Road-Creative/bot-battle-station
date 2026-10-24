@@ -16,9 +16,14 @@ try {
         } catch { Start-Sleep -Milliseconds 200 }
     }
     if (-not $ready) { throw 'local API stub did not start' }
+    $board = (Invoke-WebRequest -UseBasicParsing "http://localhost:$port/api").Content | ConvertFrom-Json
+    if (-not ($board.api -eq 1 -and $null -ne $board.sessions)) {
+        throw 'local API stub does not satisfy the launcher board check'
+    }
 
-    & powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $launcher -Install -Port $port -Repo '~'
+    $output = & powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $launcher -Install -Port $port -Repo '~' 2>&1
     if ($LASTEXITCODE -ne 0) { throw "kiosk install exited $LASTEXITCODE" }
+    if ($output -match 'board did not answer') { throw 'launcher did not accept the local board API' }
     if (-not (Test-Path -LiteralPath $startup)) { throw 'startup shortcut was not created' }
     if (-not (Test-Path -LiteralPath $installed)) { throw 'installed script was not copied' }
     if ((Get-FileHash $launcher).Hash -ne (Get-FileHash $installed).Hash) {

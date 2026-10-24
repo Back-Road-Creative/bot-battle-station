@@ -3,8 +3,11 @@
   The session board on a wall screen. Starts bin/session-board.py in WSL if it is not answering, then
   opens it as a full-screen app window on the spare monitor, with sound allowed so the siren needs no click.
 .EXAMPLE
-  Once, from WSL in the repo (copies itself to %LOCALAPPDATA%\SessionBoard and runs at every Windows login):
-    powershell.exe -ExecutionPolicy RemoteSigned -File "$(wslpath -w bin/session-board-kiosk.ps1)" -Install -Repo "$PWD"
+  Once, from WSL in the repo (runs at every Windows login). RemoteSigned refuses a script on \\wsl.localhost,
+  so copy it to %LOCALAPPDATA%\SessionBoard and run that copy:
+    board="$(wslpath "$(powershell.exe -NoProfile -Command '$env:LOCALAPPDATA' | tr -d '\r')")/SessionBoard"
+    mkdir -p "$board" && cp bin/session-board-kiosk.ps1 "$board/"
+    powershell.exe -ExecutionPolicy RemoteSigned -File "$(wslpath -w "$board/session-board-kiosk.ps1")" -Install -Repo "$PWD"
 #>
 param(
   [switch]$Install,                       # also run at every Windows login
@@ -34,7 +37,7 @@ New-Item -ItemType Directory -Force -Path $state | Out-Null
 
 if ($Install) {
   $copy = Join-Path $state "session-board-kiosk.ps1"   # Windows cannot start a login task from a WSL path
-  Copy-Item -Force $PSCommandPath $copy
+  if ([IO.Path]::GetFullPath($PSCommandPath) -ne [IO.Path]::GetFullPath($copy)) { Copy-Item -Force $PSCommandPath $copy }
   $flags = "-NoProfile -WindowStyle Hidden -ExecutionPolicy RemoteSigned -File `"$copy`" -Port $Port -Repo `"$Repo`" -Command `"$Command`" -Monitor $Monitor"
   if ($Distro) { $flags += " -Distro $Distro" }
   if ($User) { $flags += " -User $User" }

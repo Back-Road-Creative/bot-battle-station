@@ -181,17 +181,21 @@ clamped.
 `bin/session-board-kiosk.ps1` starts the board in WSL if it is not answering, then opens it as
 a full-screen app window on your second monitor (`-Monitor N` picks another), in its own
 Edge/Chrome profile with sound allowed. Install it once from WSL, in the checkout; it adds a
-Startup shortcut so it runs at every login:
+Startup shortcut so it runs at every login. Windows will not run an unsigned script from the
+`\\wsl.localhost` share under `RemoteSigned`, so the first two lines copy it to
+`%LOCALAPPDATA%\SessionBoard` and the third runs that copy:
 
 ```bash
-powershell.exe -ExecutionPolicy RemoteSigned -File "$(wslpath -w bin/session-board-kiosk.ps1)" -Install -Repo "$PWD"
+board="$(wslpath "$(powershell.exe -NoProfile -Command '$env:LOCALAPPDATA' | tr -d '\r')")/SessionBoard"
+mkdir -p "$board" && cp bin/session-board-kiosk.ps1 "$board/"
+powershell.exe -ExecutionPolicy RemoteSigned -File "$(wslpath -w "$board/session-board-kiosk.ps1")" -Install -Repo "$PWD"
 ```
 
 `-User` (default: the distro's default user) and `-Command` (default
 `python3 bin/session-board.py`) are there if yours differ. The launcher accepts
 only simple command arguments and WSL paths without spaces; it does not run
 shell syntax from these options. To remove the startup shortcut and installed
-script, run the same command with `-Uninstall` in place of `-Install`.
+script, run the same three lines with `-Uninstall` in place of `-Install`.
 
 ## Privacy and safety
 

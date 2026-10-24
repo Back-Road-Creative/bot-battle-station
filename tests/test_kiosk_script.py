@@ -29,3 +29,17 @@ def test_board_command_becomes_validated_argument_array():
     assert "[regex]::Matches" in SCRIPT
     assert "$boardArgs" in SCRIPT
     assert "-split" not in SCRIPT
+
+
+def test_install_runs_from_a_windows_folder_not_the_wsl_share():
+    # RemoteSigned refuses an unsigned script on \\wsl.localhost (an Internet-zone path),
+    # so the documented install copies the launcher to Windows first and runs that copy.
+    for doc in (SCRIPT, (ROOT / "README.md").read_text()):
+        assert '-File "$(wslpath -w bin/session-board-kiosk.ps1)"' not in doc
+        assert "$env:LOCALAPPDATA" in doc
+        assert 'cp bin/session-board-kiosk.ps1 "$board/"' in doc
+        assert '-File "$(wslpath -w "$board/session-board-kiosk.ps1")" -Install' in doc
+
+
+def test_install_from_the_installed_copy_skips_copying_onto_itself():
+    assert "if ([IO.Path]::GetFullPath($PSCommandPath) -ne [IO.Path]::GetFullPath($copy))" in SCRIPT

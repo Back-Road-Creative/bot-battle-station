@@ -34,8 +34,11 @@ try {
     $probeOutput = & powershell.exe -NoProfile -Command $probe 2>&1
     if ($LASTEXITCODE -ne 0) { throw "child board probe exited $LASTEXITCODE`: $probeOutput" }
 
-    $output = & powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $launcher -Install -Port $port -Repo '~' 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "kiosk install exited $LASTEXITCODE" }
+    # As the README does: copy the launcher to a Windows folder, then install from that copy.
+    New-Item -ItemType Directory -Force -Path (Split-Path $installed) | Out-Null
+    Copy-Item -Force $launcher $installed
+    $output = & powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $installed -Install -Port $port -Repo '~' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "kiosk install exited $LASTEXITCODE`: $output" }
     if ($output -match 'board did not answer') { throw 'launcher did not accept the local board API' }
     if (-not (Test-Path -LiteralPath $startup)) { throw 'startup shortcut was not created' }
     if (-not (Test-Path -LiteralPath $installed)) { throw 'installed script was not copied' }
@@ -47,7 +50,8 @@ try {
         throw 'startup shortcut does not launch this board'
     }
 } finally {
-    & powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $launcher -Uninstall
+    $uninstaller = if (Test-Path -LiteralPath $installed) { $installed } else { $launcher }
+    & powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $uninstaller -Uninstall
     if ($LASTEXITCODE -ne 0) { throw "kiosk uninstall exited $LASTEXITCODE" }
     Stop-Process -Id $stub.Id -Force -ErrorAction SilentlyContinue
 }

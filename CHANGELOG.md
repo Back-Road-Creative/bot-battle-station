@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Fixed
+
+- Use IPv4 loopback in the Windows kiosk launcher so a fresh PowerShell process
+  can reach the board when `localhost` resolves differently. Hosted Windows CI
+  now checks install, startup shortcut, and uninstall on every change.
+
 ## 0.3.0
 
 ### Changed

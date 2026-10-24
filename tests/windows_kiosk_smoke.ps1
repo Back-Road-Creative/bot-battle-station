@@ -20,6 +20,19 @@ try {
     if (-not ($board.api -eq 1 -and $null -ne $board.sessions)) {
         throw 'local API stub does not satisfy the launcher board check'
     }
+    $probe = @'
+$url = 'http://localhost:18765/'
+try {
+    $response = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 "${url}api"
+    $payload = $response.Content | ConvertFrom-Json
+    if (-not ($payload.api -eq 1 -and $null -ne $payload.sessions)) { exit 5 }
+} catch {
+    Write-Output "child board probe failed: $($_.Exception.Message)"
+    exit 6
+}
+'@
+    $probeOutput = & powershell.exe -NoProfile -Command $probe 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "child board probe exited $LASTEXITCODE`: $probeOutput" }
 
     $output = & powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $launcher -Install -Port $port -Repo '~' 2>&1
     if ($LASTEXITCODE -ne 0) { throw "kiosk install exited $LASTEXITCODE" }

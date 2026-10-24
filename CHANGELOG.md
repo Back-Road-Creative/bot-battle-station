@@ -6,16 +6,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
-### Fixed
-
-- Use IPv4 loopback in the Windows kiosk launcher so a fresh PowerShell process
-  can reach the board when `localhost` resolves differently. Hosted Windows CI
-  now checks install, startup shortcut, and uninstall on every change.
-- Install the Windows kiosk from a copy in `%LOCALAPPDATA%\SessionBoard`. The
-  documented command ran the launcher from `\\wsl.localhost`, which
-  `RemoteSigned` refuses as an unsigned remote script; the launcher no longer
-  fails copying itself onto itself when run from that folder.
-
 ## 0.3.0
 
 ### Changed
@@ -49,6 +39,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Remove temporary demo session files when the board exits.
 - Validate kiosk launcher arguments, identify the board before reusing a local
   server, and provide an uninstall option without disabling execution policy.
+- Use IPv4 loopback in the Windows kiosk launcher so a fresh PowerShell process
+  can reach the board when `localhost` resolves differently. Hosted Windows CI
+  now checks install, startup shortcut, and uninstall on every change.
+- Install the Windows kiosk from a copy in `%LOCALAPPDATA%\SessionBoard`. The
+  documented command ran the launcher from `\\wsl.localhost`, which
+  `RemoteSigned` refuses as an unsigned remote script; the launcher no longer
+  fails copying itself onto itself when run from that folder.
 
 ### Tests
 

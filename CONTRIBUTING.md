@@ -29,7 +29,9 @@ the suite skips that check when Node is absent.
 
 - **Tests first for a bug fix.** Add a test that fails before your change and
   passes after. Never delete or weaken a test to make the suite pass.
-- **No tokens, no network, no subprocess.** The board only reads files.
+- **No tokens, no network, no subprocess in the board.** `bin/session-board.py`
+  only reads files (the Windows kiosk script is the one place that starts
+  processes).
   `test_spends_no_tokens` holds that; a change that needs one of them needs a
   strong argument in the PR.
 - **Invented data only.** Test fixtures, docs and screenshots use made-up

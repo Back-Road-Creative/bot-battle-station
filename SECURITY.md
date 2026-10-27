@@ -36,9 +36,9 @@ saw: code, command output, secrets pasted into a prompt. So it:
   board itself (`bin/session-board.py`) starts no subprocess, on any platform;
   a test (`test_spends_no_tokens`) checks its source for that.
 
-It reads your Claude Code and Codex session files and writes only its own logs
-(one JSON line per NEEDS YOU spell and per warning) to `state_dir`, with
-owner-only permissions.
+It reads your Claude Code and Codex session files and writes only its own files to `state_dir`: logs (one JSON line per NEEDS YOU
+spell and per warning, created owner-only) and, if your status line feeds it,
+`claude-limits.json`.
 
 The optional Windows kiosk launcher, `bin/session-board-kiosk.ps1`, is separate
 and does start processes. It only runs when you run it (or, if you used

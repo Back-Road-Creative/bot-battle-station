@@ -199,12 +199,15 @@ script, run the same three lines with `-Uninstall` in place of `-Install`.
 
 ## Privacy and safety
 
-- **No model tokens, outbound requests, or subprocesses.** It serves the page
+- **No model tokens, outbound requests, or subprocesses from the board.** It serves the page
   over a loopback HTTP connection and reads `~/.claude/sessions/*.json`, the session
   transcripts and the helper-agent metadata, and only the bytes appended since the last poll;
   for Codex, the end of each live rollout file (re-read only when it changes) and its thread
   names, never its `auth.json`.
   `tests/test_session_board.py::test_spends_no_tokens` holds that.
+  The optional Windows kiosk script is separate: it checks `http://127.0.0.1:<port>/api`,
+  may start one hidden `wsl.exe` running the board command, and opens one Edge or Chrome
+  app window on the board's address (see "A wall screen on Windows"). Nothing else starts.
 - **Served on 127.0.0.1 only**, and only to a request whose `Host` is `localhost`, `127.0.0.1`
   or `[::1]`, so a web page whose DNS name flips to 127.0.0.1 cannot read your transcripts.
 - **Transcript text is untrusted.** The page writes every value with `textContent` and makes no
